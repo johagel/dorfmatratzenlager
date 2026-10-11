@@ -59,7 +59,10 @@ canvas{display:block;width:100%;height:100%;touch-action:none;-webkit-touch-call
 .size b{font-family:var(--mono);font-size:13px;font-weight:500;min-width:5ch;text-align:right}
 button:disabled{opacity:.45;cursor:default}
 
-#nav{position:absolute;right:12px;bottom:12px;display:flex;gap:8px}
+#nav{position:absolute;right:12px;bottom:12px;display:grid;grid-template-columns:repeat(3,52px);gap:6px}
+#nav .pad{justify-content:center;font-size:18px;padding:0;min-height:48px}
+#fwd{grid-column:2}
+#center{grid-column:3;grid-row:1;justify-content:center;padding:0 4px;font-size:14px}
 #nav button{background:var(--panel);box-shadow:0 1px 4px rgb(0 0 0 / .18)}
 #routebar{position:absolute;left:12px;top:12px;max-width:calc(100% - 24px);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;display:flex;gap:8px;align-items:baseline;font-weight:600}
 .grade{font-family:var(--mono);font-weight:500;font-size:13px;background:var(--accent);color:var(--accent-fg);border-radius:6px;padding:2px 7px}
@@ -131,9 +134,11 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
   <div id="routebar" hidden><span id="rb-name"></span><span id="rb-grade" class="grade"></span><span id="rb-draft" class="tag" hidden>Projekt</span></div>
   <div id="msg" hidden></div>
   <div id="nav">
-    <button id="fwd" type="button">▲ Vor</button>
-    <button id="bwd" type="button">▼ Zurück</button>
+    <button id="fwd" class="pad" type="button" aria-label="Vor">▲</button>
     <button id="center" type="button">Mitte</button>
+    <button id="left" class="pad" type="button" aria-label="Links">◀</button>
+    <button id="bwd" class="pad" type="button" aria-label="Zurück">▼</button>
+    <button id="right" class="pad" type="button" aria-label="Rechts">▶</button>
   </div>
   <section id="login" hidden aria-label="Anmelden">
     <h2>Willkommen im Dorfmatratzenlager</h2>
@@ -339,8 +344,10 @@ function zoom(f){
 $('center').onclick = () => { if (mode === 'view' && route && route.cam) applyCam(route); else { back = 0; startView(); } };
 /* Vor und Zurück in Blickrichtung: gedrückt halten bewegt gleichmäßig, nicht durch Wände */
 const SPEED = 0.9;
-function walk(d){
+/* side: 0 = in Blickrichtung, 1 = seitlich (waagrecht, rechts positiv) */
+function walk(d, side = 0){
   const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+  if (side){ dir.cross(camera.up); dir.y = 0; dir.normalize(); }
   if (d < 0) dir.negate();
   let step = Math.abs(d);
   if (model){
@@ -351,17 +358,26 @@ function walk(d){
   if (step > 0){ camera.position.addScaledVector(dir, step); controls.target.addScaledVector(dir, step); }
   back = 0; backGoal = 0;
 }
-function holdButton(btn, sign){
+function holdButton(btn, sign, side = 0){
   let raf = 0, last = 0, held = false;
-  const tick = t => { if (last) walk(sign * SPEED * Math.min(0.05, (t - last) / 1000)); last = t; raf = requestAnimationFrame(tick); };
+  const tick = t => { if (last) walk(sign * SPEED * Math.min(0.05, (t - last) / 1000), side); last = t; raf = requestAnimationFrame(tick); };
   const stop = () => { held = false; cancelAnimationFrame(raf); raf = 0; last = 0; };
   btn.addEventListener('pointerdown', e => { e.preventDefault(); held = true; btn.setPointerCapture(e.pointerId); raf = requestAnimationFrame(tick); });
   ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(n => btn.addEventListener(n, stop));
-  btn.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); walk(sign * 0.25); } });
+  btn.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); walk(sign * 0.25, side); } });
   btn.addEventListener('contextmenu', e => e.preventDefault());
 }
 holdButton($('fwd'), 1);
 holdButton($('bwd'), -1);
+holdButton($('left'), -1, 1);
+holdButton($('right'), 1, 1);
+/* Am Rechner: Pfeiltasten gehen ebenfalls */
+addEventListener('keydown', e => {
+  if (mode !== 'view' && mode !== 'edit') return;
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName)) return;
+  const k = {ArrowUp:[1, 0], ArrowDown:[-1, 0], ArrowLeft:[-1, 1], ArrowRight:[1, 1]}[e.key];
+  if (k){ e.preventDefault(); walk(k[0] * 0.15, k[1]); }
+});
 canvas.addEventListener('wheel', e => { e.preventDefault(); zoom(e.deltaY > 0 ? 1.08 : 0.92); }, {passive:false});
 
 function note(text){ const m = $('msg'); m.textContent = text; m.hidden = !text; }
