@@ -315,7 +315,8 @@ function zoom(f){
     else fovGoal = Math.max(12, fovGoal * f);
   }
 }
-$('center').onclick = () => { back = 0; startView(); };
+/* In der Routenansicht zurück zum gespeicherten Blick der Route, sonst in die Raummitte */
+$('center').onclick = () => { if (mode === 'view' && route && route.cam) applyCam(route); else { back = 0; startView(); } };
 /* Vor und Zurück in Blickrichtung: gedrückt halten bewegt gleichmäßig, nicht durch Wände */
 const SPEED = 0.9;
 function walk(d){
@@ -590,6 +591,7 @@ const esc = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>
 
 function setMode(m){
   mode = m;
+  $('center').textContent = m === 'view' ? 'Start' : 'Mitte';
   $('sheet').hidden = m !== 'list';
   $('login').hidden = m !== 'login';
   $('edit').hidden = m !== 'edit';
