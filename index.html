@@ -102,6 +102,7 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
 .title{font-weight:700;font-size:16px;min-width:0;overflow-wrap:anywhere}
 .filter{align-items:center;gap:8px;font-size:14px}
 .filter select{min-height:36px;padding:4px 8px}
+.size label.check{display:inline-flex;gap:6px;align-items:center;margin-left:auto;font-weight:600}
 .filter label.check{display:inline-flex;gap:6px;align-items:center;margin-left:auto}
 .filter input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
 #sheet li .who{color:var(--muted);font-weight:400;font-size:13px}
@@ -206,6 +207,7 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
     <input id="radius" type="range" min="3" max="30" step="1" value="8">
     <b id="radius-val">8 cm</b>
     <button id="hands" type="button" hidden>Start: 1 Hand</button>
+    <label class="check" for="snap"><input id="snap" type="checkbox" checked>Einrasten</label>
   </div>
   <div class="row">
     <button id="del" type="button" disabled>✕ Kreis</button>
@@ -527,13 +529,90 @@ canvas.addEventListener('pointerup', e => {
   if (dt > 450) return;
   const n = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : ray.ray.direction.clone().negate();
   if (n.dot(ray.ray.direction) > 0) n.negate();
-  const p = hit.point.clone().addScaledVector(n, 0.01);
-  const m = {t:current, p:p.toArray().map(v => +v.toFixed(4)), n:n.toArray().map(v => +v.toFixed(3)), r:+$('radius').value / 100};
+  let p = hit.point.clone().addScaledVector(n, 0.01), rad = +$('radius').value / 100;
+  if ($('snap').checked){
+    const s = snapHold(e.clientX, e.clientY);
+    const h2 = s && hitWall(s.x, s.y);
+    if (h2){
+      p = h2.point.clone().addScaledVector(n, 0.01);
+      const r = canvas.getBoundingClientRect();
+      const perPx = h2.distance * 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) / r.height;
+      rad = Math.min(0.30, Math.max(0.03, Math.round(s.r * perPx * 100) / 100));
+      $('radius').value = Math.round(rad * 100); $('radius-val').textContent = Math.round(rad * 100) + ' cm';
+    } else flash('Kein Griff erkannt. Kreis bitte von Hand anpassen.');
+  }
+  const m = {t:current, p:p.toArray().map(v => +v.toFixed(4)), n:n.toArray().map(v => +v.toFixed(3)), r:rad};
   if (current === 'start') m.h = hands;
   marks.push(m); const mesh = buildMesh(m); meshes.push(mesh); markerGroup.add(mesh);
   select(marks.length - 1); justCreated = true; save();
 });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+/* Einrasten: Farbe um den Tipp-Punkt mit dem Holz drumherum vergleichen, den Griff als Fläche
+   abgrenzen und Kreis auf Mitte und Größe setzen. Klappt bei bunten Griffen; bei Holz, Weiß,
+   Grau und Volumen bleibt der Kreis, wie getippt (dann von Hand anpassen). */
+try{ $('snap').checked = localStorage.getItem('dml-snap') !== '0'; }catch(e){}
+$('snap').addEventListener('change', () => { try{ localStorage.setItem('dml-snap', $('snap').checked ? '1' : '0'); }catch(e){} });
+function snapHold(x, y){
+  const rect = canvas.getBoundingClientRect(), dpr = canvas.width / rect.width, H = Math.round(80 * dpr);
+  const px = Math.round((x - rect.left) * dpr), py = Math.round((rect.bottom - y) * dpr);
+  const x0 = Math.max(0, px - H), y0 = Math.max(0, py - H);
+  const W = Math.min(canvas.width, px + H + 1) - x0, Hh = Math.min(canvas.height, py + H + 1) - y0;
+  if (W < 20 || Hh < 20) return null;
+  markerGroup.visible = false; renderer.render(scene, camera); markerGroup.visible = true;
+  const gl = renderer.getContext(), buf = new Uint8Array(W * Hh * 4);
+  gl.readPixels(x0, y0, W, Hh, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+  /* Farbmerkmale: Helligkeit (schwach gewichtet) und zwei Farbachsen */
+  const n = W * Hh, F = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++){
+    const r = buf[i * 4], g = buf[i * 4 + 1], b = buf[i * 4 + 2];
+    F[i * 3] = (r + g + b) / 3 * 0.6; F[i * 3 + 1] = (r - g) * 1.3; F[i * 3 + 2] = ((r + g) / 2 - b) * 1.3;
+  }
+  const fd = (i, c) => Math.hypot(F[i * 3] - c[0], F[i * 3 + 1] - c[1], F[i * 3 + 2] - c[2]);
+  /* Holz = Median am Rand des Ausschnitts */
+  const edge = [];
+  for (let k = 0; k < W; k += 2) edge.push(k, (Hh - 1) * W + k);
+  for (let k = 0; k < Hh; k += 2) edge.push(k * W, k * W + W - 1);
+  const med = v => { v.sort((a, b) => a - b); return v[v.length >> 1]; };
+  const wood = [0, 1, 2].map(c => med(edge.map(i => F[i * 3 + c])));
+  const thr = Math.min(55, Math.max(28, 3 * med(edge.map(i => fd(i, wood)))));
+  const mask = new Uint8Array(n);
+  for (let i = 0; i < n; i++) mask[i] = fd(i, wood) > thr ? 1 : 0;
+  /* Kandidaten: Griff-Pixel höchstens 18 px neben dem Tipp, nächste zuerst */
+  const cx = px - x0, cy = py - y0, R0 = Math.round(18 * dpr), cand = [];
+  for (let dy = -R0; dy <= R0; dy++) for (let dx = -R0; dx <= R0; dx++){
+    const xx = cx + dx, yy = cy + dy, d = dx * dx + dy * dy;
+    if (d <= R0 * R0 && xx >= 0 && yy >= 0 && xx < W && yy < Hh && mask[yy * W + xx]) cand.push([d, yy * W + xx]);
+  }
+  cand.sort((a, b) => a[0] - b[0]);
+  const done = new Uint8Array(n), minArea = Math.PI * (5 * dpr) ** 2;
+  for (const [, seed] of cand){
+    if (done[seed]) continue;
+    /* Saatfarbe: Mittel der Griff-Pixel um die Saat; Fläche wächst nur über ähnliche Farbe,
+       so bleiben benachbarte andersfarbige Griffe draußen */
+    const sx = seed % W, sy = (seed / W) | 0, sc = [0, 0, 0]; let sn = 0;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++){
+      const xx = sx + dx, yy = sy + dy; if (xx < 0 || yy < 0 || xx >= W || yy >= Hh) continue;
+      const j = yy * W + xx; if (!mask[j]) continue;
+      for (let c = 0; c < 3; c++) sc[c] += F[j * 3 + c]; sn++;
+    }
+    for (let c = 0; c < 3; c++) sc[c] /= sn;
+    const stack = [seed], pts = []; done[seed] = 1; let touch = false;
+    while (stack.length){
+      const i = stack.pop(), ix = i % W, iy = (i / W) | 0; pts.push(i);
+      if (ix === 0 || iy === 0 || ix === W - 1 || iy === Hh - 1) touch = true;
+      if (ix > 0) visit(i - 1); if (ix < W - 1) visit(i + 1); if (iy > 0) visit(i - W); if (iy < Hh - 1) visit(i + W);
+    }
+    function visit(j){ if (!done[j] && mask[j] && fd(j, sc) < 55){ done[j] = 1; stack.push(j); } }
+    if (pts.length < minArea) continue;
+    if (touch) return null; /* größer als der Ausschnitt: Volumen oder Riesengriff */
+    let mx = 0, my = 0; for (const i of pts){ mx += i % W; my += (i / W) | 0; } mx /= pts.length; my /= pts.length;
+    const d2 = pts.map(i => (i % W - mx) ** 2 + (((i / W) | 0) - my) ** 2).sort((a, b) => a - b);
+    const rPx = Math.sqrt(d2[Math.floor(d2.length * 0.95)]) * 1.1 + 2 * dpr;
+    return {x:rect.left + (x0 + mx) / dpr, y:rect.bottom - (y0 + my) / dpr, r:rPx / dpr};
+  }
+  return null;
+}
 
 
 /* Beim Ansehen einer Route wird alles außerhalb der Kreise blasser */
