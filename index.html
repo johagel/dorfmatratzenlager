@@ -1,0 +1,846 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f6f4f">
+<title>Dorfmatratzenlager</title>
+<style>
+/* Layout: Vollbild-Werkzeug. Oben Titel und Messwerte, Mitte 3D-Ansicht mit Gehen-Tasten, unten Route ansehen oder bearbeiten. */
+:root{
+  --bg:#f3f1ec; --panel:#ffffff; --fg:#1d2420; --muted:#5b655f; --line:#d6d3ca;
+  --accent:#2f6f4f; --accent-fg:#ffffff; --stage:#c9c6bd;
+  --c-start:#1f9d5c; --c-hold:#2f6fe0; --c-foot:#d98a0b; --c-top:#d63a3a;
+  --font:"DM Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"DM Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#141a17; --panel:#1e2622; --fg:#e8ece9; --muted:#9aa6a0; --line:#34403a;
+  --accent:#58c28b; --accent-fg:#0d1511; --stage:#232a26;
+  --c-start:#3ed186; --c-hold:#6b9bff; --c-foot:#f1a93a; --c-top:#ff6b6b; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#141a17; --panel:#1e2622; --fg:#e8ece9; --muted:#9aa6a0; --line:#34403a;
+  --accent:#58c28b; --accent-fg:#0d1511; --stage:#232a26;
+  --c-start:#3ed186; --c-hold:#6b9bff; --c-foot:#f1a93a; --c-top:#ff6b6b; color-scheme:dark}
+html,body{height:100%;margin:0}
+:root{padding-top:env(safe-area-inset-top,0px)}
+[hidden]{display:none!important}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:15px;display:flex;flex-direction:column;overflow:hidden}
+header,footer{background:var(--panel);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+header{border-bottom:1px solid var(--line)}
+footer{border-top:1px solid var(--line);padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
+h1{font-size:15px;font-weight:700;margin:0;letter-spacing:.01em}
+button,label.btn{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation;font:inherit;font-weight:600;border:1px solid var(--line);background:var(--bg);color:var(--fg);padding:9px 12px;border-radius:8px;cursor:pointer;min-height:40px;display:inline-flex;align-items:center;gap:8px}
+button:focus-visible,label.btn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+button.primary,label.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+button[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1.5px var(--accent)}
+.dot{width:12px;height:12px;border-radius:50%;display:inline-block}
+.stats{display:flex;flex-wrap:wrap;gap:4px 14px;font-family:var(--mono);font-size:12px;color:var(--muted);margin-left:auto}
+.stats b{color:var(--fg);font-weight:500}
+#stage{position:relative;flex:1;min-height:0;background:var(--stage)}
+canvas{display:block;width:100%;height:100%;touch-action:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+#hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--muted);pointer-events:none}
+#hint[hidden]{display:none}
+#hint p{max-width:34ch;margin:0;line-height:1.5}
+#msg{position:absolute;left:16px;right:16px;top:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:13px}
+.row{display:flex;flex-wrap:wrap;gap:8px;width:100%}
+.sep{flex:1}
+.size{align-items:center;gap:12px}
+.size input{flex:1;min-width:0;accent-color:var(--accent)}
+.size b{font-family:var(--mono);font-size:13px;font-weight:500;min-width:5ch;text-align:right}
+button:disabled{opacity:.45;cursor:default}
+
+#nav{position:absolute;right:12px;bottom:12px;display:flex;gap:8px}
+#nav button{background:var(--panel);box-shadow:0 1px 4px rgb(0 0 0 / .18)}
+#routebar{position:absolute;left:12px;top:12px;max-width:calc(100% - 24px);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;display:flex;gap:8px;align-items:baseline;font-weight:600}
+.grade{font-family:var(--mono);font-weight:500;font-size:13px;background:var(--accent);color:var(--accent-fg);border-radius:6px;padding:2px 7px}
+#sheet,#details,#login{position:absolute;inset:0;background:var(--bg);overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+#sheet h2,#details h2,#login h2{font-size:18px;margin:0}
+#details,#login{gap:8px}
+#login{z-index:5;max-width:none}
+#login input{flex:0 0 auto}
+#login label{font-weight:600;font-size:14px}
+#login h2{font-size:20px;margin:0 0 8px}
+#login .primary{align-self:flex-start}
+.new{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent-fg);background:var(--c-top);border-radius:5px;padding:1px 6px}
+#details label{font-weight:600;font-size:14px}
+#details select{align-self:flex-start;min-width:7em}
+.muted{color:var(--muted);font-weight:400}
+textarea{font:inherit;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;resize:vertical}
+textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.warn{margin:0;padding:8px 12px;border-radius:8px;border:1px solid var(--c-top);color:var(--fg)}
+.note{margin:0;width:100%;color:var(--muted);font-size:14px;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere}
+.tabs{display:flex;gap:4px}
+.tabs button{min-height:36px;padding:6px 12px}
+.tag{font-size:12px;font-weight:600;border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:var(--muted)}
+#details input[type=text]{flex:0 0 auto}
+#sheet ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+#sheet li button{width:100%;justify-content:flex-start;background:var(--panel);text-align:left;padding:12px;flex-wrap:wrap;gap:4px 10px}
+#sheet li .meta{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--muted);font-weight:400}
+#sheet .empty{color:var(--muted);margin:0}
+#sheet .model{margin-top:auto;border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:8px}
+#sheet h3{font-size:13px;margin:0;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+input[type=text],select{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-height:40px}
+input[type=text]{flex:1;min-width:0}
+input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.title{font-weight:700;font-size:16px;min-width:0;overflow-wrap:anywhere}
+.filter{align-items:center;gap:8px;font-size:14px}
+.filter select{min-height:36px;padding:4px 8px}
+.filter label.check{display:inline-flex;gap:6px;align-items:center;margin-left:auto}
+.filter input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
+#sheet li .who{color:var(--muted);font-weight:400;font-size:13px}
+#sheet li .sends{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--muted)}
+#sheet li.done button{border-color:var(--accent)}
+#sheet li.done .sends{color:var(--accent)}
+.me{font-size:14px;color:var(--muted);align-items:center}
+.me b{color:var(--fg)}
+.linkish{background:none;border:none;color:var(--accent);padding:4px;min-height:0;text-decoration:underline}
+#sent[aria-pressed="true"]{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);box-shadow:none}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono&family=DM+Sans:wght@400;600;700&display=swap">
+</head>
+<body>
+
+<header>
+  <h1>Dorfmatratzenlager</h1>
+  <button id="routes" class="primary" type="button">Routen</button>
+  <span class="sep"></span>
+  <button id="fs" type="button" aria-label="Vollbild" hidden>⛶</button>
+</header>
+
+<div id="stage">
+  <canvas id="c"></canvas>
+  <div id="hint"><p>Der Scan wird geladen …</p></div>
+  <div id="routebar" hidden><span id="rb-name"></span><span id="rb-grade" class="grade"></span><span id="rb-draft" class="tag" hidden>Projekt</span></div>
+  <div id="msg" hidden></div>
+  <div id="nav">
+    <button id="fwd" type="button">▲ Vor</button>
+    <button id="bwd" type="button">▼ Zurück</button>
+    <button id="center" type="button">Mitte</button>
+  </div>
+  <section id="login" hidden aria-label="Anmelden">
+    <h2>Willkommen im Dorfmatratzenlager</h2>
+    <label for="g-code">Gruppen-Code</label>
+    <input id="g-code" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Code von der Gruppe">
+    <label for="me-name">Dein Name</label>
+    <input id="me-name" type="text" maxlength="24" autocomplete="nickname" placeholder="Vorname">
+    <p class="muted" style="margin:0">Dein Name steht an deinen Routen und Haken.</p>
+    <p id="login-warn" class="warn" hidden></p>
+    <button id="login-go" class="primary" type="button">Los geht’s</button>
+  </section>
+  <section id="sheet" hidden aria-label="Routenliste">
+    <div id="me-show" class="row me">Angemeldet als&nbsp;<b id="me-label"></b><button id="me-change" class="linkish" type="button">ändern</button><span class="sep"></span><button id="reload" class="linkish" type="button">↻ Aktualisieren</button></div>
+    <div class="row" style="align-items:center">
+      <div class="tabs" role="group" aria-label="Liste">
+        <button id="tab-routes" type="button" aria-pressed="true">Routen</button>
+        <button id="tab-drafts" type="button" aria-pressed="false">Projekte</button>
+        <button id="tab-trash" type="button" aria-pressed="false" aria-label="Papierkorb">🗑</button>
+      </div>
+      <span class="sep"></span>
+      <button id="new" class="primary" type="button">+ Neu</button>
+    </div>
+    <div id="filter" class="row filter" role="group" aria-label="Filter">
+      <label for="f-from">Grad</label><select id="f-from"></select>
+      <label for="f-to">bis</label><select id="f-to"></select>
+      <label class="check" for="f-open"><input id="f-open" type="checkbox">nur offene</label>
+    </div>
+    <ul id="list"></ul>
+    <p id="list-empty" class="empty" hidden></p>
+    <div class="model">
+      <h3>Modell</h3>
+      <div class="row" style="align-items:center">
+        <div class="stats" aria-live="polite" style="margin-left:0">
+          <span>Datei <b id="s-size">–</b></span>
+          <span>Laden <b id="s-time">–</b></span>
+          <span>FPS <b id="s-fps">–</b></span>
+        </div>
+        <span id="model-ver" class="tag"></span>
+      </div>
+    </div>
+  </section>
+  <section id="details" hidden aria-label="Route speichern">
+    <h2>Route speichern</h2>
+    <label for="r-name">Name</label>
+    <input id="r-name" type="text" placeholder="z. B. Rosa Riese" maxlength="40" autocomplete="off">
+    <label for="r-grade">Grad (UIAA)</label>
+    <select id="r-grade"></select>
+    <label for="r-note">Kommentar <span class="muted">(optional)</span></label>
+    <textarea id="r-note" rows="3" maxlength="400" placeholder="z. B. Sitzstart, Kante rechts ist tabu"></textarea>
+    <p id="d-warn" class="warn" hidden></p>
+    <div class="row">
+      <button id="d-back" type="button">‹ Zur Wand</button>
+      <span class="sep"></span>
+      <button id="d-draft" type="button">Als Projekt</button>
+      <button id="save" class="primary" type="button">Speichern</button>
+    </div>
+  </section>
+</div>
+
+<footer id="edit" hidden>
+  <div class="row" role="group" aria-label="Griffart">
+    <button type="button" data-type="start" aria-pressed="true"><span class="dot" style="background:var(--c-start)"></span>Start</button>
+    <button type="button" data-type="hold" aria-pressed="false"><span class="dot" style="background:var(--c-hold)"></span>Griff</button>
+    <button type="button" data-type="foot" aria-pressed="false"><span class="dot" style="background:var(--c-foot)"></span>Tritt</button>
+    <button type="button" data-type="top" aria-pressed="false"><span class="dot" style="background:var(--c-top)"></span>Top</button>
+  </div>
+  <div class="row size">
+    <label for="radius">Kreisgröße</label>
+    <input id="radius" type="range" min="3" max="30" step="1" value="8">
+    <b id="radius-val">8 cm</b>
+    <button id="hands" type="button" hidden>Start: 1 Hand</button>
+  </div>
+  <div class="row">
+    <button id="del" type="button" disabled>✕ Kreis</button>
+    <span class="sep"></span>
+    <button id="cancel" type="button">Abbrechen</button>
+    <button id="next" class="primary" type="button">Weiter</button>
+  </div>
+</footer>
+
+<footer id="view" hidden>
+  <div class="row" style="align-items:center">
+    <span id="v-name" class="title"></span><span id="v-grade" class="grade"></span>
+    <span class="sep"></span>
+    <span class="stats"><span id="v-by"></span></span>
+  </div>
+  <p id="v-note" class="note" hidden></p>
+  <div class="row">
+    <button id="sent" type="button" aria-pressed="false">✓ Geschafft</button>
+    <button id="edit-btn" type="button">Bearbeiten</button>
+    <button id="remove" type="button">Route löschen</button>
+    <button id="restore" type="button" hidden>Wiederherstellen</button>
+    <span class="sep"></span>
+    <button id="back-list" class="primary" type="button">Zur Liste</button>
+  </div>
+</footer>
+
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+
+const $ = id => document.getElementById(id);
+const canvas = $('c'), stage = $('stage');
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const TYPES = {start:'--c-start', hold:'--c-hold', foot:'--c-foot', top:'--c-top'};
+
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(70, 1, 0.01, 100);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.rotateSpeed = -0.5; controls.panSpeed = 150;
+controls.enableZoom = false;
+controls.touches.TWO = THREE.TOUCH.PAN;
+const markerGroup = new THREE.Group();
+scene.add(markerGroup);
+
+let model = null, center = new THREE.Vector3(), size = new THREE.Vector3();
+let current = 'start', marks = [], meshes = [], selected = -1, justCreated = false;
+/* Routen: lokal im Browser gespeichert. model = Version des Scans, auf dem die Route eingezeichnet wurde */
+/* Gemeinsame Daten in Supabase. Der Publishable Key ist öffentlich; Zugriff nur mit Gruppen-Code (siehe supabase_einrichtung.sql) */
+const SB_URL = 'https://dryfdwazdeaprmrvzgiv.supabase.co', SB_KEY = 'sb_publishable_rFhTv60WchPuuMjHc9rnRQ_1B4J2eKf';
+const NEW_DAYS = 14;
+let models = {v1:'models/scan-v1.glb'}, newestModel = 'v1', loadedModel = null;
+let groupCode = '';
+try{ groupCode = localStorage.getItem('dml-code') || ''; }catch(e){}
+let routes = [], route = null, mode = 'list', dirty = false;
+
+function applyTheme(){ scene.background = new THREE.Color(css('--stage')); }
+applyTheme();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => setTimeout(applyTheme, 50));
+
+function resize(){
+  const w = stage.clientWidth, h = stage.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(stage);
+
+/* Blick von der Raummitte aus: ein Finger dreht, zwei Finger verschieben und zoomen */
+function startView(){
+  camera.position.copy(center);
+  controls.target.copy(center).add(new THREE.Vector3(0, 0, -0.01));
+  camera.fov = 70; camera.updateProjectionMatrix(); controls.update();
+}
+/* Zoom: erst Blickwinkel, ab 90° geht die Kamera rückwärts (bis 3 m) */
+const MAX_FOV = 90, MAX_BACK = 3;
+let back = 0;
+function moveCam(d){
+  const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+  camera.position.addScaledVector(dir, d); controls.target.addScaledVector(dir, d);
+}
+function zoom(f){
+  if (f > 1){
+    if (camera.fov < MAX_FOV){ camera.fov = Math.min(MAX_FOV, camera.fov * f); }
+    else {
+      let d = Math.min(MAX_BACK - back, (f - 1) * 4);
+      /* nicht durch die Wand hinter dir zurückgehen */
+      if (model){
+        const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+        const behind = new THREE.Raycaster(camera.position, dir.negate(), 0, 10).intersectObject(model, true)[0];
+        if (behind) d = Math.min(d, behind.distance - 0.3);
+      }
+      if (d > 0){ moveCam(-d); back += d; }
+    }
+  } else {
+    if (back > 0){ const d = Math.min(back, (1 - f) * 4); moveCam(d); back -= d; }
+    else camera.fov = Math.max(12, camera.fov * f);
+  }
+  camera.updateProjectionMatrix();
+}
+$('center').onclick = () => { back = 0; startView(); };
+/* Vor und Zurück in Blickrichtung: gedrückt halten bewegt gleichmäßig, nicht durch Wände */
+const SPEED = 0.9;
+function walk(d){
+  const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+  if (d < 0) dir.negate();
+  let step = Math.abs(d);
+  if (model){
+    const wall = new THREE.Raycaster(camera.position, dir, 0, 10).intersectObject(model, true)[0];
+    if (wall) step = Math.min(step, Math.max(0, wall.distance - 0.3));
+  }
+  if (step > 0){ camera.position.addScaledVector(dir, step); controls.target.addScaledVector(dir, step); }
+  back = 0;
+}
+function holdButton(btn, sign){
+  let raf = 0, last = 0, held = false;
+  const tick = t => { if (last) walk(sign * SPEED * Math.min(0.05, (t - last) / 1000)); last = t; raf = requestAnimationFrame(tick); };
+  const stop = () => { held = false; cancelAnimationFrame(raf); raf = 0; last = 0; };
+  btn.addEventListener('pointerdown', e => { e.preventDefault(); held = true; btn.setPointerCapture(e.pointerId); raf = requestAnimationFrame(tick); });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(n => btn.addEventListener(n, stop));
+  btn.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); walk(sign * 0.25); } });
+  btn.addEventListener('contextmenu', e => e.preventDefault());
+}
+holdButton($('fwd'), 1);
+holdButton($('bwd'), -1);
+canvas.addEventListener('wheel', e => { e.preventDefault(); zoom(e.deltaY > 0 ? 1.08 : 0.92); }, {passive:false});
+
+function note(text){ const m = $('msg'); m.textContent = text; m.hidden = !text; }
+
+/* Kreise */
+const ringGeo = new THREE.RingGeometry(0.85, 1, 48);
+const lineGeo = new THREE.RingGeometry(0.79, 1.06, 48);
+const haloGeo = new THREE.RingGeometry(1.12, 1.24, 48);
+const tabGeo = new THREE.PlaneGeometry(0.3, 0.5), tabLineGeo = new THREE.PlaneGeometry(0.46, 0.66);
+/* Beschriftung „TOP“ über dem Topkreis */
+function labelTexture(text, color){
+  const c = document.createElement('canvas'); c.width = 256; c.height = 104;
+  const x = c.getContext('2d');
+  x.fillStyle = color; x.beginPath(); x.roundRect(4, 4, 248, 96, 22); x.fill();
+  x.fillStyle = '#fff'; x.font = '700 64px system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillText(text, 128, 56);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const topLabelMat = new THREE.MeshBasicMaterial({map:labelTexture('TOP', css('--c-top')), transparent:true, depthTest:false, side:THREE.DoubleSide});
+const topLabelGeo = new THREE.PlaneGeometry(1.5, 0.61);
+const lineMat = new THREE.MeshBasicMaterial({color:0x000000, transparent:true, opacity:0.55, depthTest:false, side:THREE.DoubleSide});
+function ringMaterial(color){ return new THREE.MeshBasicMaterial({color, side:THREE.DoubleSide, depthTest:false, transparent:true}); }
+/* Startkreis: ein abstehendes Rechteck = Start mit einer Hand, zwei = mit beiden Händen */
+function buildMesh(m){
+  const g = new THREE.Group();
+  const mat = ringMaterial(css(TYPES[m.t]));
+  const line = new THREE.Mesh(lineGeo, lineMat), ring = new THREE.Mesh(ringGeo, mat);
+  const halo = new THREE.Mesh(haloGeo, ringMaterial(0xffffff)); halo.visible = false;
+  line.renderOrder = 9; ring.renderOrder = halo.renderOrder = 10;
+  g.add(line, ring, halo);
+  const tabs = [];
+  for (let i = 0; i < 2; i++){
+    const tl = new THREE.Mesh(tabLineGeo, lineMat), t = new THREE.Mesh(tabGeo, mat);
+    tl.renderOrder = 9; t.renderOrder = 10;
+    g.add(tl, t); tabs.push([t, tl]);
+  }
+  const label = new THREE.Mesh(topLabelGeo, topLabelMat); label.position.set(0, 1.55, 0); label.renderOrder = 11; g.add(label);
+  g.userData = {ring, halo, tabs, label};
+  placeMesh(g, m);
+  return g;
+}
+function placeMesh(g, m){
+  const p = new THREE.Vector3().fromArray(m.p);
+  g.position.copy(p); g.scale.setScalar(m.r);
+  const u = g.userData;
+  u.ring.material.color.set(css(TYPES[m.t]));
+  u.label.visible = m.t === 'top';
+  const n = m.t === 'start' ? (m.h || 1) : 0;
+  u.tabs.forEach(([t, tl], i) => {
+    const show = i < n, x = n === 2 ? (i ? 0.38 : -0.38) : 0;
+    t.visible = tl.visible = show;
+    t.position.set(x, -1.24, 0); tl.position.set(x, -1.24, -0.001);
+  });
+}
+function rebuild(){
+  markerGroup.clear(); meshes = marks.map(buildMesh); meshes.forEach(g => markerGroup.add(g));
+  select(-1);
+}
+function select(i){
+  selected = i; justCreated = false;
+  meshes.forEach((g, k) => g.userData.halo.visible = k === i);
+  $('del').disabled = i < 0;
+  if (i >= 0){
+    setType(marks[i].t, false);
+    const cm = Math.round(marks[i].r * 100); $('radius').value = cm; $('radius-val').textContent = cm + ' cm';
+  }
+  showHands();
+}
+let hands = 1;
+function showHands(){
+  const sel = selected >= 0 ? marks[selected] : null;
+  const isStart = sel ? sel.t === 'start' : current === 'start';
+  const h = sel && sel.t === 'start' ? (sel.h || 1) : hands;
+  $('hands').hidden = !isStart;
+  $('hands').textContent = h === 2 ? 'Start: 2 Hände' : 'Start: 1 Hand';
+}
+$('hands').onclick = () => {
+  if (selected >= 0 && marks[selected].t === 'start'){
+    const m = marks[selected]; m.h = (m.h || 1) === 1 ? 2 : 1; hands = m.h; placeMesh(meshes[selected], m); save();
+  } else hands = hands === 1 ? 2 : 1;
+  showHands();
+};
+function setType(t, applyToSelected = true){
+  current = t;
+  document.querySelectorAll('[data-type]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.type === t)));
+  if (!applyToSelected || selected < 0) return showHands();
+  /* Ein gerade gesetzter Kreis behält seine Farbe; die Wahl gilt dann für den nächsten Kreis */
+  if (justCreated){ select(-1); return; }
+  const m = marks[selected]; m.t = t; if (t === 'start') m.h = m.h || hands; placeMesh(meshes[selected], m); save(); showHands();
+}
+function save(){ dirty = true; }
+document.querySelectorAll('[data-type]').forEach(b => b.onclick = () => setType(b.dataset.type));
+$('radius').addEventListener('input', () => {
+  const cm = +$('radius').value; $('radius-val').textContent = cm + ' cm';
+  if (selected >= 0){ marks[selected].r = cm / 100; placeMesh(meshes[selected], marks[selected]); save(); }
+});
+$('del').onclick = () => { if (selected < 0) return; marks.splice(selected, 1); save(); rebuild(); };
+
+/* Gesten:
+   Tippen setzt einen Kreis oder wählt einen vorhandenen aus.
+   Einen Kreis ziehen verschiebt ihn.
+   Ein Finger dreht den Blick, zwei Finger verschieben und zoomen. */
+const ray = new THREE.Raycaster();
+const pointers = new Map();
+let down = null, multi = false, pinchDist = 0, grab = -1, dragging = false;
+const pinch = () => { const [a, b] = [...pointers.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+function ndcOf(x, y){ const r = canvas.getBoundingClientRect(); return new THREE.Vector2(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1); }
+function hitWall(x, y){ if (!model) return null; ray.setFromCamera(ndcOf(x, y), camera); return ray.intersectObject(model, true)[0] || null; }
+function circleAt(x, y){
+  const r = canvas.getBoundingClientRect(), right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+  const toPx = v => { const q = v.clone().project(camera); return {x:(q.x + 1) / 2 * r.width + r.left, y:(1 - q.y) / 2 * r.height + r.top, z:q.z}; };
+  let best = -1, bestD = Infinity;
+  marks.forEach((m, i) => {
+    const p = new THREE.Vector3().fromArray(m.p), c = toPx(p);
+    if (c.z > 1) return;
+    const e = toPx(p.clone().addScaledVector(right, m.r)), rad = Math.max(Math.hypot(e.x - c.x, e.y - c.y), 18);
+    const d = Math.hypot(x - c.x, y - c.y);
+    if (d < rad && d < bestD){ best = i; bestD = d; }
+  });
+  return best;
+}
+/* Capture-Phase: läuft vor der Kamerasteuerung, damit Ziehen am Kreis die Ansicht nicht dreht */
+stage.addEventListener('pointerdown', e => {
+  if (e.target !== canvas) return;
+  pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  if (pointers.size === 1){
+    down = {x:e.clientX, y:e.clientY, t:performance.now()}; multi = false; dragging = false;
+    grab = mode === 'edit' ? circleAt(e.clientX, e.clientY) : -1;
+    controls.enabled = grab < 0;
+  } else {
+    multi = true; grab = -1; dragging = false; controls.enabled = true;
+    if (pointers.size === 2) pinchDist = pinch();
+  }
+}, true);
+canvas.addEventListener('pointermove', e => {
+  if (!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  if (pointers.size === 2){ const d = pinch(); if (pinchDist > 0 && d > 0) zoom(pinchDist / d); pinchDist = d; return; }
+  if (grab >= 0 && down){
+    if (!dragging && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6){ dragging = true; select(grab); }
+    if (dragging){
+      const hit = hitWall(e.clientX, e.clientY); if (!hit) return;
+      const n = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : ray.ray.direction.clone().negate();
+      if (n.dot(ray.ray.direction) > 0) n.negate();
+      const m = marks[grab];
+      m.p = hit.point.clone().addScaledVector(n, 0.01).toArray().map(v => +v.toFixed(4));
+      m.n = n.toArray().map(v => +v.toFixed(3));
+      placeMesh(meshes[grab], m);
+    }
+  }
+});
+const lift = e => { pointers.delete(e.pointerId); if (pointers.size < 2) pinchDist = 0; if (!pointers.size) controls.enabled = true; };
+canvas.addEventListener('pointercancel', e => { lift(e); down = null; dragging = false; grab = -1; });
+canvas.addEventListener('pointerup', e => {
+  lift(e);
+  if (dragging){ dragging = false; grab = -1; down = null; save(); return; }
+  const g = grab; grab = -1;
+  if (!down || !model || multi || pointers.size) { if (!pointers.size) down = null; return; }
+  const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y), dt = performance.now() - down.t;
+  down = null;
+  if (moved > 8 || mode !== 'edit') return;
+  if (g >= 0 && dt <= 450){ select(g === selected ? -1 : g); return; }
+  const hit = hitWall(e.clientX, e.clientY);
+  if (!hit){ note('Hier ist keine Oberfläche getroffen. Tippe direkt auf die Wand.'); setTimeout(() => note(''), 2200); return; }
+  if (dt > 450) return;
+  const n = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : ray.ray.direction.clone().negate();
+  if (n.dot(ray.ray.direction) > 0) n.negate();
+  const p = hit.point.clone().addScaledVector(n, 0.01);
+  const m = {t:current, p:p.toArray().map(v => +v.toFixed(4)), n:n.toArray().map(v => +v.toFixed(3)), r:+$('radius').value / 100};
+  if (current === 'start') m.h = hands;
+  marks.push(m); const mesh = buildMesh(m); meshes.push(mesh); markerGroup.add(mesh);
+  select(marks.length - 1); justCreated = true; save();
+});
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+
+/* Beim Ansehen einer Route wird alles außerhalb der Kreise blasser */
+const HL_MAX = 48;
+const hl = {c:{value:Array.from({length:HL_MAX}, () => new THREE.Vector4())}, n:{value:0}, on:{value:0}};
+function dimShader(sh){
+  Object.assign(sh.uniforms, {hlC:hl.c, hlN:hl.n, hlOn:hl.on});
+  sh.vertexShader = 'varying vec3 vWPos;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+  sh.fragmentShader = 'varying vec3 vWPos;\nuniform vec4 hlC[' + HL_MAX + '];\nuniform int hlN;\nuniform float hlOn;\n' +
+    sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+    if (hlOn > 0.5){
+      float k = 0.0;
+      for (int i = 0; i < ${HL_MAX}; i++){
+        if (i >= hlN) break;
+        float d = distance(vWPos, hlC[i].xyz);
+        k = max(k, 1.0 - smoothstep(hlC[i].w * 0.95, hlC[i].w * 1.25, d));
+      }
+      float g = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+      vec3 dim = mix(vec3(g), diffuseColor.rgb, 0.55) * 0.62 + 0.16;
+      diffuseColor.rgb = mix(dim, diffuseColor.rgb, k);
+    }`);
+}
+function updateHighlight(){
+  const n = Math.min(marks.length, HL_MAX);
+  for (let i = 0; i < n; i++){ const m = marks[i]; hl.c.value[i].set(m.p[0], m.p[1], m.p[2], m.r); }
+  hl.n.value = n; hl.on.value = mode === 'view' && n ? 1 : 0;
+}
+
+/* ---------- Routen ---------- */
+const GRADES = [];
+for (let g = 1; g <= 12; g++) for (const s of ['-', '', '+']) GRADES.push(g + s);
+$('r-grade').innerHTML = GRADES.map(g => `<option value="${g}">${g}</option>`).join('');
+$('r-grade').value = '5';
+
+/* ---------- Server ---------- */
+async function api(path, opts = {}){
+  const res = await fetch(SB_URL + '/rest/v1/' + path, {
+    ...opts,
+    headers:{apikey:SB_KEY, 'x-group-code':groupCode, 'Content-Type':'application/json', ...(opts.headers || {})}
+  });
+  if (!res.ok) throw new Error('Server ' + res.status);
+  const t = await res.text();
+  return t ? JSON.parse(t) : null;
+}
+const fromRow = r => ({id:r.id, name:r.name, grade:r.grade, note:r.note || '', by:r.by_name, created:r.created, model:r.model,
+  marks:r.marks || [], cam:r.cam, draft:r.draft, deleted_at:r.deleted_at, deleted_by:r.deleted_by, sends:[]});
+const toRow = r => ({id:r.id, name:r.name, grade:r.grade, note:r.note || '', by_name:r.by || '', created:r.created, updated:new Date().toISOString(),
+  model:r.model, marks:r.marks, cam:r.cam || null, draft:!!r.draft, deleted_at:r.deleted_at || null, deleted_by:r.deleted_by || null});
+let loading = false;
+async function loadAll(){
+  loading = true;
+  try{
+    const [rows, sends, mods] = await Promise.all([
+      api('routes?select=*&order=created.desc'),
+      api('sends?select=route_id,person'),
+      api('models?select=version,file,created&order=created.asc')
+    ]);
+    routes = rows.map(fromRow);
+    const byId = Object.fromEntries(routes.map(r => [r.id, r]));
+    sends.forEach(s => byId[s.route_id] && byId[s.route_id].sends.push(s.person));
+    if (mods.length){ models = Object.fromEntries(mods.map(m => [m.version, m.file])); newestModel = mods[mods.length - 1].version; }
+    return true;
+  }catch(e){
+    flash('Keine Verbindung zum Server. Prüfe dein Internet und tippe auf „Aktualisieren“.');
+    return false;
+  }finally{ loading = false; }
+}
+async function saveRoute(r){
+  await api('routes?on_conflict=id', {method:'POST', headers:{Prefer:'resolution=merge-duplicates,return=minimal'}, body:JSON.stringify(toRow(r))});
+}
+function flash(text){ note(text); setTimeout(() => note(''), 2600); }
+const esc = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
+
+function setMode(m){
+  mode = m;
+  $('sheet').hidden = m !== 'list';
+  $('login').hidden = m !== 'login';
+  $('edit').hidden = m !== 'edit';
+  $('view').hidden = m !== 'view';
+  $('nav').hidden = m === 'list' || m === 'login';
+  $('routebar').hidden = m !== 'view';
+  $('details').hidden = true;
+  if (m === 'list' || m === 'login'){ marks = []; rebuild(); }
+}
+/* Anmelden: Gruppen-Code und Name einmal eingeben, bleiben im Browser */
+let me = '';
+try{ me = localStorage.getItem('dml-user') || ''; }catch(e){}
+function showMe(){ $('me-label').textContent = me; }
+function showLogin(msg){
+  if (mode !== 'login'){ $('g-code').value = groupCode; $('me-name').value = me; }
+  setMode('login');
+  $('login-warn').textContent = msg || ''; $('login-warn').hidden = !msg;
+}
+$('login-go').onclick = async () => {
+  const code = $('g-code').value.trim(), name = $('me-name').value.trim();
+  $('login-warn').hidden = true;
+  if (!code){ showLogin('Bitte den Gruppen-Code eingeben.'); return $('g-code').focus(); }
+  if (!name){ showLogin('Bitte deinen Namen eingeben.'); return $('me-name').focus(); }
+  $('login-go').disabled = true;
+  try{
+    groupCode = code;
+    const ok = await api('rpc/check_group', {method:'POST', body:'{}'});
+    if (!ok){ $('login-go').disabled = false; return showLogin('Der Gruppen-Code stimmt nicht.'); }
+  }catch(e){ $('login-go').disabled = false; return showLogin('Keine Verbindung zum Server. Prüfe dein Internet.'); }
+  $('login-go').disabled = false;
+  me = name;
+  try{ localStorage.setItem('dml-code', groupCode); localStorage.setItem('dml-user', me); }catch(e){}
+  await loadAll(); showList();
+};
+['g-code', 'me-name'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') $('login-go').click(); }));
+$('me-change').onclick = () => showLogin();
+$('reload').onclick = async () => { await loadAll(); if (mode === 'list') showList(); };
+
+/* Filter: Grad von–bis und nur offene; bleibt im Browser gespeichert */
+const gi = g => GRADES.indexOf(g);
+let filter = {from:'1-', to:'12+', open:false};
+try{ Object.assign(filter, JSON.parse(localStorage.getItem('boulder-filter') || '{}')); }catch(e){}
+['f-from', 'f-to'].forEach(id => $(id).innerHTML = GRADES.map(g => `<option value="${g}">${g}</option>`).join(''));
+$('f-from').value = filter.from; $('f-to').value = filter.to; $('f-open').checked = filter.open;
+['f-from', 'f-to', 'f-open'].forEach(id => $(id).addEventListener('change', () => {
+  filter = {from:$('f-from').value, to:$('f-to').value, open:$('f-open').checked};
+  if (gi(filter.from) > gi(filter.to)){ filter.to = filter.from; $('f-to').value = filter.to; }
+  try{ localStorage.setItem('boulder-filter', JSON.stringify(filter)); }catch(e){}
+  showList();
+}));
+
+/* Zwei Listen: fertige Routen und Projekte (noch nicht veröffentlicht) */
+let listTab = 'routes';
+$('tab-routes').onclick = () => { listTab = 'routes'; showList(); };
+$('tab-drafts').onclick = () => { listTab = 'drafts'; showList(); };
+$('tab-trash').onclick = () => { listTab = 'trash'; showList(); };
+const isNew = r => Date.now() - new Date(r.created).getTime() < NEW_DAYS * 864e5;
+function showList(){
+  setMode('list'); showMe();
+  const drafts = listTab === 'drafts', trash = listTab === 'trash';
+  $('tab-routes').setAttribute('aria-pressed', String(listTab === 'routes'));
+  $('tab-drafts').setAttribute('aria-pressed', String(drafts));
+  $('tab-trash').setAttribute('aria-pressed', String(trash));
+  const live = routes.filter(r => !r.deleted_at);
+  const nDrafts = live.filter(r => r.draft).length;
+  $('tab-drafts').textContent = nDrafts ? `Projekte (${nDrafts})` : 'Projekte';
+  $('filter').hidden = drafts || trash;
+  $('new').hidden = trash;
+  $('model-ver').textContent = 'Scan ' + newestModel;
+  const lo = gi(filter.from), hi = gi(filter.to);
+  const shown = trash
+    ? routes.filter(r => r.deleted_at).sort((a, b) => b.deleted_at.localeCompare(a.deleted_at))
+    : drafts
+    ? live.filter(r => r.draft).sort((a, b) => b.created.localeCompare(a.created))
+    : live.filter(r => !r.draft)
+      .filter(r => gi(r.grade) >= lo && gi(r.grade) <= hi)
+      .filter(r => !filter.open || !(r.sends || []).includes(me))
+      .sort((a, b) => gi(a.grade) - gi(b.grade) || a.name.localeCompare(b.name, 'de'));
+  $('list').innerHTML = shown.map(r => {
+    const mine = !r.draft && !r.deleted_at && me && (r.sends || []).includes(me);
+    const extra = r.deleted_at ? `<span class="who">gelöscht von ${esc(r.deleted_by || '–')}</span>`
+      : (!r.draft && isNew(r) ? '<span class="new">Neu</span>' : '');
+    return `<li class="${mine ? 'done' : ''}"><button type="button" data-id="${r.id}">
+      <span class="grade">${esc(r.grade)}</span><span>${esc(r.name)}</span>${extra}
+      <span class="who">von ${esc(r.by || '–')}</span>
+      <span class="meta sends">${mine ? '✓ geschafft' : ''}</span></button></li>`;
+  }).join('');
+  $('list-empty').hidden = shown.length > 0;
+  $('list-empty').textContent = trash ? 'Der Papierkorb ist leer.' : drafts ? 'Keine Projekte. Beim Speichern einer Route kannst du „Als Projekt“ wählen, dann erscheint sie erst hier.'
+    : live.some(r => !r.draft) ? 'Keine Route passt zum Filter.' : 'Noch keine Route gespeichert. Leg mit „+ Neu“ die erste an.';
+  $('list').querySelectorAll('button').forEach(b => b.onclick = () => openRoute(b.dataset.id));
+}
+
+/* Kameraposition wird mit der Route gespeichert */
+function camState(){ return {p:camera.position.toArray().map(v => +v.toFixed(3)), t:controls.target.toArray().map(v => +v.toFixed(3)), fov:+camera.fov.toFixed(1)}; }
+function applyCam(r){
+  if (!r || !r.cam) return;
+  camera.position.fromArray(r.cam.p); controls.target.fromArray(r.cam.t);
+  camera.fov = r.cam.fov; camera.updateProjectionMatrix(); back = 0; controls.update();
+}
+function showSends(){
+  $('sent').setAttribute('aria-pressed', String(!!me && (route.sends || []).includes(me)));
+  $('sent').hidden = !!route.draft || !!route.deleted_at;
+}
+$('sent').onclick = async () => {
+  const r = route, sends = r.sends, had = sends.includes(me);
+  if (had) sends.splice(sends.indexOf(me), 1); else sends.push(me);
+  showSends();
+  try{
+    if (had) await api(`sends?route_id=eq.${encodeURIComponent(r.id)}&person=eq.${encodeURIComponent(me)}`, {method:'DELETE'});
+    else await api('sends', {method:'POST', headers:{Prefer:'resolution=ignore-duplicates,return=minimal'}, body:JSON.stringify({route_id:r.id, person:me})});
+  }catch(e){
+    if (had) sends.push(me); else sends.splice(sends.indexOf(me), 1);
+    if (route === r) showSends();
+    flash('Haken nicht gespeichert. Keine Verbindung zum Server.');
+  }
+};
+function openRoute(id){
+  route = routes.find(r => r.id === id); if (!route) return showList();
+  marks = route.marks.map(m => ({...m})); rebuild();
+  $('v-name').textContent = $('rb-name').textContent = route.name;
+  $('v-grade').textContent = $('rb-grade').textContent = route.grade;
+  $('v-by').textContent = 'von ' + (route.by || '–');
+  $('v-note').textContent = route.note || ''; $('v-note').hidden = !route.note;
+  $('rb-draft').hidden = !route.draft;
+  showSends();
+  armRemove(false);
+  const del = !!route.deleted_at;
+  $('edit-btn').hidden = $('remove').hidden = del; $('restore').hidden = !del;
+  setMode('view');
+  ensureModel(route.model).then(() => { if (route) applyCam(route); });
+}
+function startEdit(r){
+  route = r;
+  if (!r) ensureModel(newestModel);
+  marks = r ? r.marks.map(m => ({...m})) : [];
+  $('r-name').value = r ? r.name : '';
+  $('r-grade').value = r ? r.grade : '5';
+  $('r-note').value = r ? (r.note || '') : '';
+  setType('start', false);
+  rebuild(); dirty = false; armCancel(false);
+  setMode('edit');
+  if (!r) flash('Tippe auf die Griffe, um Kreise zu setzen. Einen Kreis ziehen verschiebt ihn.');
+}
+$('routes').onclick = () => { if (mode === 'edit' && dirty) return flash('Bitte erst speichern oder abbrechen.'); showList(); };
+$('new').onclick = () => startEdit(null);
+$('back-list').onclick = showList;
+$('edit-btn').onclick = () => startEdit(route);
+/* Speichern in zwei Schritten: erst Kreise an der Wand, dann Name, Grad und Kommentar */
+let editCam = null;
+function warn(text){ $('d-warn').textContent = text; $('d-warn').hidden = !text; }
+$('next').onclick = () => {
+  if (!marks.length) return flash('Setze mindestens einen Kreis.');
+  editCam = camState(); select(-1);
+  warn(''); $('save').textContent = 'Speichern';
+  $('details').hidden = false;
+};
+$('d-back').onclick = () => { $('details').hidden = true; };
+async function store(draft){
+  const name = $('r-name').value.trim() || (draft ? 'Projekt vom ' + new Date().toLocaleDateString('de-DE') : '');
+  if (!name){ $('r-name').focus(); return warn('Gib der Route einen Namen.'); }
+  const data = {name, grade:$('r-grade').value, note:$('r-note').value.trim(), marks:marks.map(m => ({...m})), cam:editCam || camState(), draft};
+  if (route) Object.assign(route, data);
+  const r = route ? {...route, ...data}
+    : {id:Date.now().toString(36) + Math.random().toString(36).slice(2, 6), model:loadedModel || newestModel, created:new Date().toISOString(), by:me, sends:[], ...data};
+  $('save').disabled = $('d-draft').disabled = true;
+  try{ await saveRoute(r); }
+  catch(e){ $('save').disabled = $('d-draft').disabled = false; return warn('Speichern fehlgeschlagen. Keine Verbindung zum Server. Deine Kreise sind noch da, versuch es gleich noch einmal.'); }
+  $('save').disabled = $('d-draft').disabled = false;
+  if (route) Object.assign(route, data); else { route = r; routes.unshift(r); }
+  dirty = false;
+  listTab = draft ? 'drafts' : 'routes';
+  openRoute(route.id);
+}
+$('d-draft').onclick = () => store(true);
+$('save').onclick = () => {
+  const hasStart = marks.some(m => m.t === 'start'), hasTop = marks.some(m => m.t === 'top');
+  if ((!hasStart || !hasTop) && $('save').textContent === 'Speichern'){
+    const miss = !hasStart && !hasTop ? 'ein Start- und ein Topkreis' : !hasStart ? 'ein Startkreis' : 'ein Topkreis';
+    warn('Es fehlt ' + miss + '. Trotzdem speichern?');
+    $('save').textContent = 'Trotzdem speichern';
+    return;
+  }
+  store(false);
+};
+/* Abbrechen und Löschen brauchen einen zweiten Tipp, wenn etwas verloren ginge */
+let cancelTimer = 0, removeTimer = 0;
+function armCancel(on){ clearTimeout(cancelTimer); $('cancel').textContent = on ? 'Verwerfen?' : 'Abbrechen'; if (on) cancelTimer = setTimeout(() => armCancel(false), 3000); }
+function armRemove(on){ clearTimeout(removeTimer); $('remove').textContent = on ? 'Wirklich löschen?' : 'Route löschen'; if (on) removeTimer = setTimeout(() => armRemove(false), 3000); }
+$('cancel').onclick = () => {
+  if (dirty && $('cancel').textContent === 'Abbrechen') return armCancel(true);
+  armCancel(false); dirty = false;
+  route ? openRoute(route.id) : showList();
+};
+/* Löschen verschiebt in den Papierkorb, von dort lässt sich die Route wiederherstellen */
+async function setDeleted(r, on){
+  const before = {deleted_at:r.deleted_at, deleted_by:r.deleted_by};
+  r.deleted_at = on ? new Date().toISOString() : null; r.deleted_by = on ? me : null;
+  try{ await api(`routes?id=eq.${encodeURIComponent(r.id)}`, {method:'PATCH', headers:{Prefer:'return=minimal'}, body:JSON.stringify({deleted_at:r.deleted_at, deleted_by:r.deleted_by})}); return true; }
+  catch(e){ Object.assign(r, before); flash('Nicht gespeichert. Keine Verbindung zum Server.'); return false; }
+}
+$('remove').onclick = async () => {
+  if ($('remove').textContent === 'Route löschen') return armRemove(true);
+  if (await setDeleted(route, true)){ route = null; showList(); flash('Route liegt im Papierkorb (🗑) und lässt sich dort wiederherstellen.'); }
+};
+$('restore').onclick = async () => {
+  if (await setDeleted(route, false)){ listTab = route.draft ? 'drafts' : 'routes'; openRoute(route.id); }
+};
+['input', 'change'].forEach(ev => ['r-name', 'r-grade', 'r-note'].forEach(id => $(id).addEventListener(ev, () => dirty = true)));
+
+/* Vollbild, wo der Browser es erlaubt */
+if (document.fullscreenEnabled){
+  $('fs').hidden = false;
+  $('fs').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => flash('Vollbild ist hier nicht möglich.'));
+}
+/* Start: ohne Gruppen-Code zuerst anmelden */
+(async () => {
+  if (!groupCode || !me) return showLogin();
+  setMode('list');
+  if (await loadAll()) showList(); else showList();
+})();
+
+/* Scan laden: jede Route wird auf dem Scan angezeigt, auf dem sie eingezeichnet wurde */
+let modelPromise = null;
+function ensureModel(v){
+  v = models[v] ? v : newestModel;
+  if (loadedModel === v && model) return Promise.resolve();
+  if (modelPromise && modelPromise.v === v) return modelPromise;
+  const file = models[v];
+  modelPromise = openModel('Scan ' + v, 0, async () => { const r = await fetch(file); if (!r.ok) throw new Error('Scan nicht gefunden (' + r.status + ')'); return r.arrayBuffer(); })
+    .then(() => { loadedModel = v; });
+  modelPromise.v = v;
+  return modelPromise;
+}
+async function openModel(name, bytes, getBuf){
+  $('hint').hidden = true; note('Lade ' + name + ' …');
+  const t0 = performance.now();
+  try{
+    const buf = await getBuf();
+    if (!bytes) bytes = buf.byteLength;
+    const gltf = await new GLTFLoader().parseAsync(buf, '');
+    if (model){ scene.remove(model); model.traverse(o => { if (o.isMesh){ o.geometry.dispose(); o.material.map && o.material.map.dispose(); o.material.dispose(); } }); }
+    let tris = 0;
+    gltf.scene.traverse(o => {
+      if (!o.isMesh) return;
+      const old = o.material;
+      o.material = new THREE.MeshBasicMaterial({map:old.map, color:old.map ? 0xffffff : old.color, side:THREE.DoubleSide});
+      o.material.onBeforeCompile = dimShader;
+      const g = o.geometry; tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
+    });
+    model = gltf.scene; scene.add(model);
+    const box = new THREE.Box3().setFromObject(model);
+    box.getCenter(center); box.getSize(size);
+    $('s-size').textContent = (bytes / 1048576).toFixed(1) + ' MB';
+    $('s-time').textContent = ((performance.now() - t0) / 1000).toFixed(1) + ' s';
+    startView();
+    note('');
+  }catch(err){
+    note('Die Datei konnte nicht geladen werden: ' + err.message);
+  }
+}
+ensureModel(newestModel);
+
+/* FPS */
+let frames = 0, last = performance.now();
+renderer.setAnimationLoop(() => {
+  controls.update();
+  /* Kreise zeigen immer zur Kamera und bleiben dadurch rund */
+  for (const g of meshes) g.quaternion.copy(camera.quaternion);
+  updateHighlight();
+  renderer.render(scene, camera);
+  frames++; const n = performance.now();
+  if (n - last > 700 && model){ $('s-fps').textContent = Math.round(frames * 1000 / (n - last)); frames = 0; last = n; }
+});
+resize();
+</script>
+</body>
+</html>
