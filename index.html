@@ -219,8 +219,13 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
     <button id="edit-btn" type="button">Bearbeiten</button>
     <button id="remove" type="button">Route löschen</button>
     <button id="restore" type="button" hidden>Wiederherstellen</button>
+    <button id="share" type="button" aria-expanded="false">Teilen</button>
     <span class="sep"></span>
     <button id="back-list" class="primary" type="button">Zur Liste</button>
+  </div>
+  <div id="share-row" class="row" hidden>
+    <button id="share-link" type="button">🔗 Link teilen</button>
+    <button id="share-img" type="button">🖼 Bild teilen</button>
   </div>
 </footer>
 
@@ -624,7 +629,7 @@ $('login-go').onclick = async () => {
   $('login-go').disabled = false;
   me = name;
   try{ localStorage.setItem('dml-code', groupCode); localStorage.setItem('dml-user', me); }catch(e){}
-  await loadAll(); showList();
+  await loadAll(); showList(); openLinked();
 };
 ['g-code', 'me-name'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') $('login-go').click(); }));
 $('me-change').onclick = () => showLogin();
@@ -720,7 +725,8 @@ function openRoute(id){
   showSends();
   armRemove(false);
   const del = !!route.deleted_at;
-  $('edit-btn').hidden = $('remove').hidden = del; $('restore').hidden = !del;
+  $('edit-btn').hidden = $('remove').hidden = $('share').hidden = del; $('restore').hidden = !del;
+  $('share-row').hidden = true; $('share').setAttribute('aria-expanded', 'false');
   setMode('view');
   ensureModel(route.model).then(() => { if (route) applyCam(route); });
 }
@@ -829,11 +835,66 @@ addEventListener('appinstalled', () => { $('install').hidden = true; });
 $('install-go').onclick = async () => { if (!installEvt) return; installEvt.prompt(); await installEvt.userChoice; installEvt = null; $('install').hidden = true; };
 $('install-x').onclick = () => { installLater = true; $('install').hidden = true; try{ localStorage.setItem('dml-install-later', '1'); }catch(e){} };
 showInstall();
+/* Teilen: Link öffnet die Route direkt (nur für die Gruppe, der Code steht nicht im Link) */
+const routeLink = r => location.origin + location.pathname + '#r=' + encodeURIComponent(r.id);
+function linkedId(){ const m = location.hash.match(/^#r=(.+)$/); return m ? decodeURIComponent(m[1]) : null; }
+function openLinked(){
+  const id = linkedId(); if (!id) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  if (routes.some(r => r.id === id)) openRoute(id); else flash('Diese Route gibt es nicht mehr.');
+}
+addEventListener('hashchange', () => { if (groupCode && me && routes.length) openLinked(); });
+$('share').onclick = () => {
+  const open = $('share-row').hidden;
+  $('share-row').hidden = !open; $('share').setAttribute('aria-expanded', String(open));
+};
+const shareText = r => `${r.name} (${r.grade}) im Dorfmatratzenlager`;
+$('share-link').onclick = async () => {
+  if (!route) return;
+  const url = routeLink(route);
+  if (navigator.share){ try{ await navigator.share({title:route.name, text:shareText(route), url}); }catch(e){} return; }
+  try{ await navigator.clipboard.writeText(url); flash('Link kopiert.'); }catch(e){ prompt('Link zum Kopieren:', url); }
+};
+/* Bild: aktuelle Ansicht mit Name, Grad und Ersteller */
+function routeImage(r){
+  renderer.render(scene, camera);
+  const w = canvas.width, h = canvas.height, k = w / 400, band = Math.round(76 * k);
+  const out = document.createElement('canvas'); out.width = w; out.height = h + band;
+  const g = out.getContext('2d');
+  g.drawImage(canvas, 0, 0);
+  g.fillStyle = '#3f8ad8'; g.fillRect(0, h, w, band);
+  g.fillStyle = '#ffffff'; g.textBaseline = 'alphabetic';
+  g.font = `700 ${Math.round(22 * k)}px "DM Sans", system-ui, sans-serif`;
+  const name = r.name.length > 26 ? r.name.slice(0, 25) + '…' : r.name;
+  g.fillText(name, 16 * k, h + 32 * k);
+  const nw = g.measureText(name).width;
+  g.font = `700 ${Math.round(16 * k)}px "DM Mono", ui-monospace, monospace`;
+  const gx = 16 * k + nw + 10 * k, gw = g.measureText(r.grade).width + 14 * k;
+  g.fillStyle = 'rgba(255,255,255,.22)'; g.fillRect(gx, h + 14 * k, gw, 24 * k);
+  g.fillStyle = '#ffffff'; g.fillText(r.grade, gx + 7 * k, h + 31 * k);
+  g.font = `400 ${Math.round(14 * k)}px "DM Sans", system-ui, sans-serif`;
+  g.globalAlpha = .9;
+  g.fillText('von ' + (r.by || '–') + ' · Dorfmatratzenlager', 16 * k, h + 58 * k);
+  return new Promise(res => out.toBlob(res, 'image/jpeg', 0.88));
+}
+$('share-img').onclick = async () => {
+  if (!route) return;
+  const blob = await routeImage(route);
+  const file = new File([blob], route.name.replace(/[^\wäöüÄÖÜß-]+/g, '_') + '.jpg', {type:'image/jpeg'});
+  const text = shareText(route) + '\n' + routeLink(route);
+  if (navigator.canShare && navigator.canShare({files:[file]})){
+    try{ await navigator.share({files:[file], title:route.name, text}); }catch(e){}
+    return;
+  }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  flash('Bild gespeichert.');
+};
 /* Start: ohne Gruppen-Code zuerst anmelden */
 (async () => {
   if (!groupCode || !me) return showLogin();
   setMode('list');
-  if (await loadAll()) showList(); else showList();
+  await loadAll(); showList(); openLinked();
 })();
 
 /* Scan laden: jede Route wird auf dem Scan angezeigt, auf dem sie eingezeichnet wurde */
