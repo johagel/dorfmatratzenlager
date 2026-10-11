@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#2f6f4f"/>
+  <!-- Wand mit Griffen -->
+  <path d="M150 300 C120 250 140 175 205 160 C255 148 290 185 330 170 C380 152 405 205 385 255 C365 305 300 300 255 325 C210 350 170 335 150 300 Z" fill="#f1a93a"/>
+  <circle cx="232" cy="232" r="16" fill="#2f6f4f" opacity=".55"/>
+  <circle cx="318" cy="222" r="11" fill="#2f6f4f" opacity=".55"/>
+  <!-- Matratze -->
+  <rect x="96" y="360" width="320" height="64" rx="22" fill="#f3f1ec"/>
+  <path d="M176 366 v52 M256 366 v52 M336 366 v52" stroke="#2f6f4f" stroke-width="8" stroke-linecap="round" opacity=".35"/>
+  <!-- Kreise wie in der App -->
+  <circle cx="140" cy="150" r="30" fill="none" stroke="#f3f1ec" stroke-width="12"/>
+  <circle cx="372" cy="128" r="22" fill="none" stroke="#ff6b6b" stroke-width="10"/>
+</svg>

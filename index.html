@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2f6f4f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Dorfmatratzenlager">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Dorfmatratzenlager</title>
 <style>
 /* Layout: Vollbild-Werkzeug. Oben Titel und Messwerte, Mitte 3D-Ansicht mit Gehen-Tasten, unten Route ansehen oder bearbeiten. */
@@ -23,12 +30,13 @@
   --accent:#58c28b; --accent-fg:#0d1511; --stage:#232a26;
   --c-start:#3ed186; --c-hold:#6b9bff; --c-foot:#f1a93a; --c-top:#ff6b6b; color-scheme:dark}
 html,body{height:100%;margin:0}
-:root{padding-top:env(safe-area-inset-top,0px)}
 [hidden]{display:none!important}
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:15px;display:flex;flex-direction:column;overflow:hidden}
 header,footer{background:var(--panel);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
-header{border-bottom:1px solid var(--line)}
+header{border-bottom:1px solid var(--line);padding-top:calc(10px + env(safe-area-inset-top,0px))}
+#install{margin:0;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel);font-size:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#install .sep{flex:1}
 footer{border-top:1px solid var(--line);padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
 h1{font-size:15px;font-weight:700;margin:0;letter-spacing:.01em}
 button,label.btn{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation;font:inherit;font-weight:600;border:1px solid var(--line);background:var(--bg);color:var(--fg);padding:9px 12px;border-radius:8px;cursor:pointer;min-height:40px;display:inline-flex;align-items:center;gap:8px}
@@ -131,6 +139,7 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
   </section>
   <section id="sheet" hidden aria-label="Routenliste">
     <div id="me-show" class="row me">Angemeldet als&nbsp;<b id="me-label"></b><button id="me-change" class="linkish" type="button">ändern</button><span class="sep"></span><button id="reload" class="linkish" type="button">↻ Aktualisieren</button></div>
+    <div id="install" hidden><span id="install-text"></span><span class="sep"></span><button id="install-go" class="primary" type="button" hidden>Installieren</button><button id="install-x" class="linkish" type="button">Später</button></div>
     <div class="row" style="align-items:center">
       <div class="tabs" role="group" aria-label="Liste">
         <button id="tab-routes" type="button" aria-pressed="true">Routen</button>
@@ -796,6 +805,28 @@ if (document.fullscreenEnabled){
   $('fs').hidden = false;
   $('fs').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => flash('Vollbild ist hier nicht möglich.'));
 }
+/* Als App auf den Homescreen: startet dann ohne Browserleiste im Vollbild */
+const standalone = matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || navigator.standalone === true;
+if (standalone) $('fs').hidden = true;
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+let installEvt = null, installLater = false;
+try{ installLater = localStorage.getItem('dml-install-later') === '1'; }catch(e){}
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function showInstall(){
+  if (standalone || installLater) return;
+  if (installEvt){
+    $('install-text').textContent = 'Als App auf den Homescreen legen?';
+    $('install-go').hidden = false; $('install').hidden = false;
+  } else if (isIOS){
+    $('install-text').innerHTML = 'Als App: unten auf <b>Teilen</b> tippen, dann <b>Zum Home-Bildschirm</b>.';
+    $('install').hidden = false;
+  }
+}
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; showInstall(); });
+addEventListener('appinstalled', () => { $('install').hidden = true; });
+$('install-go').onclick = async () => { if (!installEvt) return; installEvt.prompt(); await installEvt.userChoice; installEvt = null; $('install').hidden = true; };
+$('install-x').onclick = () => { installLater = true; $('install').hidden = true; try{ localStorage.setItem('dml-install-later', '1'); }catch(e){} };
+showInstall();
 /* Start: ohne Gruppen-Code zuerst anmelden */
 (async () => {
   if (!groupCode || !me) return showLogin();
