@@ -88,6 +88,7 @@ textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 #my-note-box summary{cursor:pointer;color:var(--muted);padding:4px 0}
 #my-note-box summary .muted{font-size:12px}
 #my-note{width:100%;margin-top:4px}
+.sends-who{font-size:13px}
 .note{margin:0;width:100%;color:var(--muted);font-size:14px;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere}
 .tabs{display:flex;gap:4px}
 .tabs button{min-height:36px;padding:6px 12px}
@@ -160,6 +161,7 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
         <button id="tab-trash" type="button" aria-pressed="false" aria-label="Papierkorb">🗑</button>
       </div>
       <span class="sep"></span>
+      <button id="random" type="button" aria-label="Zufallsroute" title="Zufallsroute">🎲</button>
       <button id="new" class="primary" type="button">+ Neu</button>
     </div>
     <div id="filter" class="row filter" role="group" aria-label="Filter">
@@ -229,6 +231,7 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
     <span class="stats"><span id="v-by"></span></span>
   </div>
   <p id="v-note" class="note" hidden></p>
+  <p id="v-sends" class="note sends-who"></p>
   <details id="my-note-box">
     <summary>Meine Notiz <span class="muted">(nur auf diesem Handy)</span></summary>
     <textarea id="my-note" rows="2" maxlength="400" placeholder="z. B. linker Fuß auf das Volumen, Schlüsselstelle oben"></textarea>
@@ -547,7 +550,9 @@ canvas.addEventListener('pointerup', e => {
   if (n.dot(ray.ray.direction) > 0) n.negate();
   let p = hit.point.clone().addScaledVector(n, 0.01), rad = +$('radius').value / 100;
   if ($('snap').checked){
-    const s = snapHold(e.clientX, e.clientY);
+    /* zuerst Farbe (bunte Griffe), sonst Form (Holz, Weiß, Grau); Mini-Treffer sind meist Schraublöcher */
+    let s = snapHold(e.clientX, e.clientY);
+    if (!s || s.r < 11) s = snapRelief(e.clientX, e.clientY) || s;
     const h2 = s && hitWall(s.x, s.y);
     if (h2){
       p = h2.point.clone().addScaledVector(n, 0.01);
@@ -564,9 +569,60 @@ canvas.addEventListener('pointerup', e => {
 });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 
+/* Einrasten über die Form: Griffe stehen aus der Wand heraus. Strahlen im Raster um den Tipp,
+   Wandebene aus dem Rand des Ausschnitts, alles was über 1,2 cm davor liegt, gilt als Griff. */
+const probeR = new THREE.Raycaster(); probeR.firstHitOnly = true;
+function snapRelief(x, y){
+  const rect = canvas.getBoundingClientRect(), S = 4, K = 20, G = 2 * K + 1;
+  const P = new Array(G * G).fill(null);
+  for (let j = 0; j < G; j++) for (let i = 0; i < G; i++){
+    const sx = x + (i - K) * S, sy = y + (j - K) * S;
+    if (sx < rect.left || sx > rect.right || sy < rect.top || sy > rect.bottom) continue;
+    probeR.setFromCamera(ndcOf(sx, sy), camera);
+    const h = probeR.intersectObject(model, true)[0];
+    if (h) P[j * G + i] = h.point;
+  }
+  /* Wandebene: Randpunkte, zweimal Ausreißer entfernen */
+  let ring = [];
+  for (let k = 0; k < G; k++) ring.push(P[k], P[(G - 1) * G + k], P[k * G], P[k * G + G - 1]);
+  ring = ring.filter(Boolean);
+  if (ring.length < 20) return null;
+  let c, nrm;
+  for (let it = 0; it < 3; it++){
+    c = new THREE.Vector3(); ring.forEach(p => c.add(p)); c.divideScalar(ring.length);
+    const m = [0, 0, 0, 0, 0, 0]; /* xx xy xz yy yz zz */
+    for (const p of ring){ const dx = p.x - c.x, dy = p.y - c.y, dz = p.z - c.z; m[0] += dx * dx; m[1] += dx * dy; m[2] += dx * dz; m[3] += dy * dy; m[4] += dy * dz; m[5] += dz * dz; }
+    /* kleinster Eigenvektor per inverser Iteration */
+    const A = new THREE.Matrix3().set(m[0], m[1], m[2], m[1], m[3], m[4], m[2], m[4], m[5]);
+    const tr = (m[0] + m[3] + m[5]) * 1e-6; A.elements[0] += tr; A.elements[4] += tr; A.elements[8] += tr;
+    const inv = A.clone().invert(); nrm = new THREE.Vector3(0.3, 0.5, 0.8);
+    for (let k = 0; k < 20; k++) nrm.applyMatrix3(inv).normalize();
+    const d = ring.map(p => Math.abs(p.clone().sub(c).dot(nrm)));
+    const lim = Math.max(0.01, d.slice().sort((a, b) => a - b)[Math.floor(d.length * 0.7)] * 2);
+    ring = ring.filter((p, k) => d[k] <= lim);
+  }
+  if (nrm.dot(camera.position.clone().sub(c)) < 0) nrm.negate();
+  const mask = P.map(p => p && p.clone().sub(c).dot(nrm) > 0.012 ? 1 : 0);
+  /* Fläche um den Tipp füllen */
+  let seed = -1, best = 1e9;
+  for (let j = -4; j <= 4; j++) for (let i = -4; i <= 4; i++){ const k = (K + j) * G + K + i; if (mask[k] && i * i + j * j < best){ best = i * i + j * j; seed = k; } }
+  if (seed < 0) return null;
+  const stack = [seed], pts = []; mask[seed] = 2; let touch = false;
+  while (stack.length){
+    const k = stack.pop(), i = k % G, j = (k / G) | 0; pts.push(k);
+    if (i === 0 || j === 0 || i === G - 1 || j === G - 1) touch = true;
+    for (const q of [i > 0 ? k - 1 : -1, i < G - 1 ? k + 1 : -1, j > 0 ? k - G : -1, j < G - 1 ? k + G : -1]) if (q >= 0 && mask[q] === 1){ mask[q] = 2; stack.push(q); }
+  }
+  if (touch || pts.length < 3) return null;
+  let mx = 0, my = 0; for (const k of pts){ mx += k % G; my += (k / G) | 0; } mx /= pts.length; my /= pts.length;
+  const d2 = pts.map(k => (k % G - mx) ** 2 + (((k / G) | 0) - my) ** 2).sort((a, b) => a - b);
+  const r = (Math.sqrt(d2[Math.floor(d2.length * 0.95)]) + 0.7) * S * 1.1;
+  return {x:x + (mx - K) * S, y:y + (my - K) * S, r};
+}
+
 /* Einrasten: Farbe um den Tipp-Punkt mit dem Holz drumherum vergleichen, den Griff als Fläche
-   abgrenzen und Kreis auf Mitte und Größe setzen. Klappt bei bunten Griffen; bei Holz, Weiß,
-   Grau und Volumen bleibt der Kreis, wie getippt (dann von Hand anpassen). */
+   abgrenzen und Kreis auf Mitte und Größe setzen. Für Holz, Weiß und Grau springt snapRelief ein; findet keins etwas,
+   bleibt der Kreis, wie getippt (dann von Hand anpassen). */
 try{ $('snap').checked = localStorage.getItem('dml-snap') !== '0'; }catch(e){}
 $('snap').addEventListener('change', () => { try{ localStorage.setItem('dml-snap', $('snap').checked ? '1' : '0'); }catch(e){} });
 function snapHold(x, y){
@@ -794,7 +850,7 @@ function showList(){
   const nDrafts = live.filter(r => r.draft).length;
   $('tab-drafts').textContent = nDrafts ? `Projekte (${nDrafts})` : 'Projekte';
   $('filter').hidden = drafts || trash;
-  $('new').hidden = trash;
+  $('new').hidden = trash; $('random').hidden = drafts || trash;
   $('model-ver').textContent = 'Scan ' + newestModel;
   const lo = gi(filter.from), hi = gi(filter.to);
   const shown = trash
@@ -821,6 +877,13 @@ function showList(){
   $('list').querySelectorAll('button').forEach(b => b.onclick = () => openRoute(b.dataset.id));
 }
 
+/* Zufallsroute: eine offene Route im eingestellten Grad-Bereich */
+$('random').onclick = () => {
+  const lo = gi(filter.from), hi = gi(filter.to);
+  const pool = routes.filter(r => !r.deleted_at && !r.draft && gi(r.grade) >= lo && gi(r.grade) <= hi && !(r.sends || []).includes(me));
+  if (!pool.length) return flash(`Keine offene Route von ${filter.from} bis ${filter.to}.`);
+  openRoute(pool[Math.floor(Math.random() * pool.length)].id);
+};
 /* Kameraposition wird mit der Route gespeichert */
 function camState(){ return {p:camera.position.toArray().map(v => +v.toFixed(3)), t:controls.target.toArray().map(v => +v.toFixed(3)), fov:+camera.fov.toFixed(1)}; }
 function applyCam(r){
@@ -830,7 +893,9 @@ function applyCam(r){
 }
 function showSends(){
   $('sent').setAttribute('aria-pressed', String(!!me && (route.sends || []).includes(me)));
-  $('sent').hidden = !!route.draft || !!route.deleted_at;
+  $('sent').hidden = $('v-sends').hidden = !!route.draft || !!route.deleted_at;
+  const who = [...(route.sends || [])].sort((a, b) => a.localeCompare(b, 'de'));
+  $('v-sends').textContent = who.length ? `✓ Geschafft von ${who.join(', ')}` : 'Noch von niemandem geschafft.';
 }
 $('sent').onclick = async () => {
   const r = route, sends = r.sends, had = sends.includes(me);
