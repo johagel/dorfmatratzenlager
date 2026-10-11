@@ -20,8 +20,8 @@ self.addEventListener('fetch', e => {
       return res;
     }));
   } else if (page){
-    /* App-Seite: zuerst Netz, ohne Netz die letzte Fassung */
-    e.respondWith(fetch(req).then(res => {
+    /* App-Seite: zuerst Netz (am Server nachfragen, nicht aus dem Browser-Speicher), ohne Netz die letzte Fassung */
+    e.respondWith(fetch(req, {cache:'no-cache'}).then(res => {
       if (res.ok){ const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
       return res;
     }).catch(() => caches.match(req)));
