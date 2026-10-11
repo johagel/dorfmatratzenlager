@@ -1,6 +1,6 @@
 /* Zwischenspeicher: Scans und Bibliotheken bleiben auf dem Handy (schneller Start),
    die App selbst kommt immer frisch vom Server, Routen-Daten werden nie zwischengespeichert. */
-const CACHE = 'dml-v2';
+const CACHE = 'dml-v3';
 self.addEventListener('install', e => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(
   caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())

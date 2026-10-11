@@ -1,15 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" fill="#3f8ad8"/>
-  <!-- Griff in Form eines Schweinekopfs -->
-  <path d="M150 190 C118 168 104 128 112 104 C116 94 126 92 136 98 C170 116 200 136 222 150 Z" fill="#e8962a"/>
-  <path d="M362 190 C394 168 408 128 400 104 C396 94 386 92 376 98 C342 116 312 136 290 150 Z" fill="#e8962a"/>
-  <path d="M256 128 C340 126 392 176 390 240 C388 306 330 338 256 338 C178 338 124 304 122 242 C120 178 174 130 256 128 Z" fill="#f1a93a"/>
-  <circle cx="206" cy="210" r="11" fill="#1d2420" opacity=".75"/>
-  <circle cx="306" cy="210" r="11" fill="#1d2420" opacity=".75"/>
-  <ellipse cx="256" cy="268" rx="62" ry="42" fill="#e8962a"/>
-  <ellipse cx="234" cy="268" rx="11" ry="16" fill="#1d2420" opacity=".6"/>
-  <ellipse cx="278" cy="268" rx="11" ry="16" fill="#1d2420" opacity=".6"/>
+  <!-- Wand mit Griffen -->
+  <path d="M150 300 C120 250 140 175 205 160 C255 148 290 185 330 170 C380 152 405 205 385 255 C365 305 300 300 255 325 C210 350 170 335 150 300 Z" fill="#f1a93a"/>
+  <circle cx="232" cy="232" r="16" fill="#8a5a14" opacity=".75"/>
+  <circle cx="318" cy="222" r="11" fill="#8a5a14" opacity=".75"/>
   <!-- Matratze -->
-  <rect x="96" y="368" width="320" height="64" rx="22" fill="#f3f1ec"/>
-  <path d="M176 374 v52 M256 374 v52 M336 374 v52" stroke="#3f8ad8" stroke-width="8" stroke-linecap="round" opacity=".45"/>
+  <rect x="96" y="360" width="320" height="64" rx="22" fill="#f3f1ec"/>
+  <path d="M176 366 v52 M256 366 v52 M336 366 v52" stroke="#3f8ad8" stroke-width="8" stroke-linecap="round" opacity=".35"/>
+  <!-- Kreise wie in der App -->
+  <circle cx="140" cy="150" r="30" fill="none" stroke="#f3f1ec" stroke-width="12"/>
+  <circle cx="372" cy="128" r="22" fill="none" stroke="#ff6b6b" stroke-width="10"/>
 </svg>
