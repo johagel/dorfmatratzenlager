@@ -215,11 +215,15 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
   </div>
 </footer>
 
-<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/","three-mesh-bvh":"https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.7.8/build/index.module.js"}}</script>
 <script type="module">
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {computeBoundsTree, acceleratedRaycast} from 'three-mesh-bvh';
+/* Suchbaum für das Modell: Treffer auf Wände in Bruchteilen einer Millisekunde statt über alle Dreiecke */
+THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
 const $ = id => document.getElementById(id);
 const canvas = $('c'), stage = $('stage');
@@ -265,32 +269,42 @@ function startView(){
   camera.position.copy(center);
   controls.target.copy(center).add(new THREE.Vector3(0, 0, -0.01));
   camera.fov = 70; camera.updateProjectionMatrix(); controls.update();
+  syncZoom();
 }
-/* Zoom: erst Blickwinkel, ab 90° geht die Kamera rückwärts (bis 3 m) */
+/* Zoom: erst Blickwinkel, ab 90° geht die Kamera rückwärts (bis 3 m).
+   Gesten setzen nur Zielwerte, die Kamera gleitet im Bildtakt dorthin (ruckelfrei) */
 const MAX_FOV = 90, MAX_BACK = 3;
-let back = 0;
+let back = 0, fovGoal = 70, backGoal = 0;
+function syncZoom(){ fovGoal = camera.fov; backGoal = back; }
+function easeZoom(){
+  const df = fovGoal - camera.fov;
+  if (Math.abs(df) > 0.01){ camera.fov += df * 0.35; camera.updateProjectionMatrix(); }
+  const db = backGoal - back;
+  if (Math.abs(db) > 0.0005){ const d = db * 0.35; moveCam(-d); back += d; }
+}
 function moveCam(d){
   const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
   camera.position.addScaledVector(dir, d); controls.target.addScaledVector(dir, d);
 }
+const probe = new THREE.Raycaster(); probe.firstHitOnly = true;
 function zoom(f){
   if (f > 1){
-    if (camera.fov < MAX_FOV){ camera.fov = Math.min(MAX_FOV, camera.fov * f); }
+    if (fovGoal < MAX_FOV){ fovGoal = Math.min(MAX_FOV, fovGoal * f); }
     else {
-      let d = Math.min(MAX_BACK - back, (f - 1) * 4);
+      let d = Math.min(MAX_BACK - backGoal, (f - 1) * 4);
       /* nicht durch die Wand hinter dir zurückgehen */
       if (model){
         const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
-        const behind = new THREE.Raycaster(camera.position, dir.negate(), 0, 10).intersectObject(model, true)[0];
-        if (behind) d = Math.min(d, behind.distance - 0.3);
+        probe.set(camera.position, dir.negate()); probe.far = 10;
+        const behind = probe.intersectObject(model, true)[0];
+        if (behind) d = Math.min(d, behind.distance - (backGoal - back) - 0.3);
       }
-      if (d > 0){ moveCam(-d); back += d; }
+      if (d > 0) backGoal += d;
     }
   } else {
-    if (back > 0){ const d = Math.min(back, (1 - f) * 4); moveCam(d); back -= d; }
-    else camera.fov = Math.max(12, camera.fov * f);
+    if (backGoal > 0) backGoal = Math.max(0, backGoal - (1 - f) * 4);
+    else fovGoal = Math.max(12, fovGoal * f);
   }
-  camera.updateProjectionMatrix();
 }
 $('center').onclick = () => { back = 0; startView(); };
 /* Vor und Zurück in Blickrichtung: gedrückt halten bewegt gleichmäßig, nicht durch Wände */
@@ -300,11 +314,12 @@ function walk(d){
   if (d < 0) dir.negate();
   let step = Math.abs(d);
   if (model){
-    const wall = new THREE.Raycaster(camera.position, dir, 0, 10).intersectObject(model, true)[0];
+    probe.set(camera.position, dir); probe.far = 10;
+    const wall = probe.intersectObject(model, true)[0];
     if (wall) step = Math.min(step, Math.max(0, wall.distance - 0.3));
   }
   if (step > 0){ camera.position.addScaledVector(dir, step); controls.target.addScaledVector(dir, step); }
-  back = 0;
+  back = 0; backGoal = 0;
 }
 function holdButton(btn, sign){
   let raf = 0, last = 0, held = false;
@@ -419,7 +434,7 @@ $('del').onclick = () => { if (selected < 0) return; marks.splice(selected, 1); 
    Tippen setzt einen Kreis oder wählt einen vorhandenen aus.
    Einen Kreis ziehen verschiebt ihn.
    Ein Finger dreht den Blick, zwei Finger verschieben und zoomen. */
-const ray = new THREE.Raycaster();
+const ray = new THREE.Raycaster(); ray.firstHitOnly = true;
 const pointers = new Map();
 let down = null, multi = false, pinchDist = 0, grab = -1, dragging = false;
 const pinch = () => { const [a, b] = [...pointers.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
@@ -664,7 +679,7 @@ function camState(){ return {p:camera.position.toArray().map(v => +v.toFixed(3))
 function applyCam(r){
   if (!r || !r.cam) return;
   camera.position.fromArray(r.cam.p); controls.target.fromArray(r.cam.t);
-  camera.fov = r.cam.fov; camera.updateProjectionMatrix(); back = 0; controls.update();
+  camera.fov = r.cam.fov; camera.updateProjectionMatrix(); back = 0; controls.update(); syncZoom();
 }
 function showSends(){
   $('sent').setAttribute('aria-pressed', String(!!me && (route.sends || []).includes(me)));
@@ -814,6 +829,7 @@ async function openModel(name, bytes, getBuf){
       const old = o.material;
       o.material = new THREE.MeshBasicMaterial({map:old.map, color:old.map ? 0xffffff : old.color, side:THREE.DoubleSide});
       o.material.onBeforeCompile = dimShader;
+      o.geometry.computeBoundsTree();
       const g = o.geometry; tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
     });
     model = gltf.scene; scene.add(model);
@@ -832,6 +848,7 @@ ensureModel(newestModel);
 /* FPS */
 let frames = 0, last = performance.now();
 renderer.setAnimationLoop(() => {
+  easeZoom();
   controls.update();
   /* Kreise zeigen immer zur Kamera und bleiben dadurch rund */
   for (const g of meshes) g.quaternion.copy(camera.quaternion);
