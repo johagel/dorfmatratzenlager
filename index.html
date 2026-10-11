@@ -89,6 +89,7 @@ textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 #my-note-box summary .muted{font-size:12px}
 #my-note{width:100%;margin-top:4px}
 .sends-who{font-size:13px}
+.tour-ask{align-items:center;font-size:14px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px}
 .note{margin:0;width:100%;color:var(--muted);font-size:14px;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere}
 .tabs{display:flex;gap:4px}
 .tabs button{min-height:36px;padding:6px 12px}
@@ -209,6 +210,12 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
     <button type="button" data-type="foot" aria-pressed="false"><span class="dot" style="background:var(--c-foot)"></span>Tritt</button>
     <button type="button" data-type="top" aria-pressed="false"><span class="dot" style="background:var(--c-top)"></span>Top</button>
   </div>
+  <div id="tour-ask" class="row tour-ask" hidden>
+    <span>Zufallstour im aktuellen Ausschnitt (am besten die ganze Wand vom Boden bis oben zeigen). Tritte:</span>
+    <button id="tour-feet" type="button">festgelegt</button>
+    <button id="tour-free" type="button">alle erlaubt</button>
+    <button id="tour-x" class="linkish" type="button">Abbrechen</button>
+  </div>
   <div class="row size">
     <label for="radius">Kreisgröße</label>
     <input id="radius" type="range" min="3" max="30" step="1" value="8">
@@ -218,6 +225,7 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
   </div>
   <div class="row">
     <button id="del" type="button" disabled>✕ Kreis</button>
+    <button id="tour" type="button" title="Zufallstour im aktuellen Ausschnitt" aria-label="Zufallstour">🎲</button>
     <span class="sep"></span>
     <button id="cancel" type="button">Abbrechen</button>
     <button id="next" class="primary" type="button">Weiter</button>
@@ -279,7 +287,7 @@ controls.touches.TWO = THREE.TOUCH.PAN;
 const markerGroup = new THREE.Group();
 scene.add(markerGroup);
 
-let model = null, center = new THREE.Vector3(), size = new THREE.Vector3();
+let model = null, center = new THREE.Vector3(), size = new THREE.Vector3(), floorY = 0;
 let current = 'start', marks = [], meshes = [], selected = -1, justCreated = false;
 /* Routen: lokal im Browser gespeichert. model = Version des Scans, auf dem die Route eingezeichnet wurde */
 /* Gemeinsame Daten in Supabase. Der Publishable Key ist öffentlich; Zugriff nur mit Gruppen-Code (siehe supabase_einrichtung.sql) */
@@ -569,11 +577,120 @@ canvas.addEventListener('pointerup', e => {
 });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 
+/* ---------- Zufallstour ----------
+   Griffe im sichtbaren Ausschnitt: Kreise aller Routen auf diesem Scan, ergänzt um erkannte bunte Griffe.
+   Sitzstart: Start auf 0,75–1,3 m (zwei Griffe je eine Hand oder einer beidhändig), dann Zug um Zug
+   nach oben in Reichweite. Tritte auf Wunsch: tief beginnend, unter den Händen. Den Grad kennt die App nicht. */
+const tmpV = new THREE.Vector3();
+function visibleOnWall(p){
+  tmpV.copy(p).project(camera);
+  if (tmpV.z > 1 || Math.abs(tmpV.x) > 0.95 || Math.abs(tmpV.y) > 0.95) return false;
+  const d = camera.position.distanceTo(p);
+  probe.set(camera.position, p.clone().sub(camera.position).normalize()); probe.far = d + 0.1;
+  const h = probe.intersectObject(model, true)[0];
+  return !h || h.distance > d - 0.06;
+}
+function collectHolds(feet){
+  const list = [];
+  /* keine Treffer auf Boden und Matten (Fläche zeigt nach oben); Überlappungen nur einmal */
+  const add = (p, n, r) => { if (n[1] < 0.7 && !list.some(h => h.p.distanceTo(p) < (h.r + r) * 0.8)) list.push({p, n, r, y:p.y - floorY}); };
+  for (const rt of routes){
+    if (rt.deleted_at || (rt.model || 'v1') !== loadedModel) continue;
+    for (const m of rt.marks){ const p = new THREE.Vector3().fromArray(m.p); if (visibleOnWall(p)) add(p, m.n, m.r); }
+  }
+  const rect = canvas.getBoundingClientRect(), frame = readFrame(), step = 34;
+  for (let y = rect.top + 17; y < rect.bottom; y += step) for (let x = rect.left + 17; x < rect.right; x += step){
+    const s = snapHold(x, y, frame); if (!s || s.r < 9) continue;
+    const h = hitWall(s.x, s.y); if (!h) continue;
+    const n = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld) : ray.ray.direction.clone().negate();
+    if (n.dot(ray.ray.direction) > 0) n.negate();
+    const perPx = h.distance * 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) / rect.height;
+    const r = Math.min(0.25, Math.max(0.03, Math.round(s.r * perPx * 100) / 100));
+    add(h.point.clone().addScaledVector(n, 0.01), n.toArray().map(v => +v.toFixed(3)), r);
+  }
+  /* Tritte: unten sind oft Holz- und graue Tritte, die nur über die Form auffallen */
+  if (feet) for (let y = rect.top + 25; y < rect.bottom; y += 44) for (let x = rect.left + 25; x < rect.right; x += 44){
+    const h0 = hitWall(x, y); if (!h0 || h0.point.y - floorY > 1.0 || h0.point.y - floorY < 0.1) continue;
+    const s = snapRelief(x, y, 5, 12); if (!s) continue;
+    const h = hitWall(s.x, s.y); if (!h) continue;
+    const n = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld) : ray.ray.direction.clone().negate();
+    if (n.dot(ray.ray.direction) > 0) n.negate();
+    const perPx = h.distance * 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) / rect.height;
+    add(h.point.clone().addScaledVector(n, 0.01), n.toArray().map(v => +v.toFixed(3)), Math.min(0.2, Math.max(0.03, Math.round(s.r * perPx * 100) / 100)));
+  }
+  return list;
+}
+const flat = (a, b) => Math.hypot(a.p.x - b.p.x, a.p.z - b.p.z);
+const pickW = (arr, w) => { const ws = arr.map(w), sum = ws.reduce((a, b) => a + b, 0); let t = Math.random() * sum; for (let i = 0; i < arr.length; i++){ t -= ws[i]; if (t <= 0) return arr[i]; } return arr[arr.length - 1]; };
+function makeTour(H, feet){
+  const starts = H.filter(h => h.y > 0.75 && h.y < 1.3);
+  if (!starts.length) return null;
+  let best = null;
+  for (let attempt = 0; attempt < 60; attempt++){
+    const s1 = starts[Math.floor(Math.random() * starts.length)];
+    let s2 = null;
+    if (Math.random() < 0.5){
+      const pair = starts.filter(h => h !== s1 && h.p.distanceTo(s1.p) > 0.2 && h.p.distanceTo(s1.p) < 0.6 && Math.abs(h.y - s1.y) < 0.3);
+      if (pair.length) s2 = pair[Math.floor(Math.random() * pair.length)];
+    }
+    const used = new Set([s1, s2].filter(Boolean)), seq = [];
+    let hands = [s1, s2 || s1];
+    for (let k = 0; k < 30; k++){
+      const hi = hands[0].y > hands[1].y ? hands[0] : hands[1], lo = hi === hands[0] ? hands[1] : hands[0];
+      const next = H.filter(h => !used.has(h) && h.y > hi.y - 0.15 && h.y < hi.y + 0.6 && h.p.distanceTo(hi.p) > 0.2 && h.p.distanceTo(hi.p) < 0.8 && h.p.distanceTo(lo.p) < 1.1);
+      if (!next.length) break;
+      const n = pickW(next, h => Math.max(0.05, h.y - hi.y + 0.25));
+      used.add(n); seq.push(n); hands = [hi, n];
+    }
+    /* Top = höchster Griff; was danach nur noch quer oder abwärts geht, fällt weg */
+    let top = 0; seq.forEach((h, i) => { if (h.y >= seq[top].y) top = i; });
+    seq.splice(top + 1).forEach(h => used.delete(h));
+    if (!best || seq.length > best.seq.length) best = {s1, s2, seq, used};
+    if (seq.length >= 10) break;
+  }
+  if (!best || best.seq.length < 3) return null;
+  const marks = [];
+  const mk = (h, t, extra) => ({t, p:h.p.toArray().map(v => +v.toFixed(4)), n:h.n, r:h.r, ...extra});
+  marks.push(mk(best.s1, 'start', {h:best.s2 ? 1 : 2}));
+  if (best.s2) marks.push(mk(best.s2, 'start', {h:1}));
+  best.seq.forEach((h, i) => marks.push(mk(h, i === best.seq.length - 1 ? 'top' : 'hold')));
+  if (feet){
+    const free = H.filter(h => !best.used.has(h)), taken = new Set();
+    const foot = (lo, hi, near) => {
+      const c = free.filter(h => !taken.has(h) && h.y > lo && h.y < hi && flat(h, near) < 0.6);
+      if (!c.length) return;
+      const f = c.sort((a, b) => a.y - b.y)[Math.floor(Math.random() * Math.min(2, c.length))];
+      taken.add(f); marks.push(mk(f, 'foot'));
+    };
+    foot(0.0, 0.55, best.s1); foot(0.0, 0.7, best.s2 || best.s1);
+    best.seq.forEach((h, i) => { if (i % 2 === 0 && i < best.seq.length - 1) foot(h.y - 1.5, h.y - 0.6, h); });
+  }
+  return marks;
+}
+$('tour').onclick = () => { if (!model) return; $('tour-ask').hidden = false; };
+$('tour-x').onclick = () => { $('tour-ask').hidden = true; };
+function runTour(feet){
+  $('tour-ask').hidden = true;
+  if (marks.length && !confirm('Die gesetzten Kreise werden durch die Zufallstour ersetzt. Weiter?')) return;
+  note('Tour wird gebaut …');
+  setTimeout(() => {
+    const t = makeTour(collectHolds(feet), feet);
+    note('');
+    if (!t) return flash('Hier sind zu wenige Griffe für eine Tour. Dreh die Ansicht auf eine Wand mit Griffen ab etwa 1 m Höhe.');
+    marks = t; rebuild(); save();
+    if (!$('r-name').value) $('r-name').value = 'Zufallstour';
+    $('r-note').value = 'Zufallstour, Tritte ' + (feet ? 'festgelegt' : 'frei') + '. Grad bitte nach dem Klettern eintragen.';
+    flash(`Tour mit ${t.filter(m => m.t !== 'foot').length} Griffen. Kreise kannst du noch verschieben oder löschen.`);
+  }, 30);
+}
+$('tour-feet').onclick = () => runTour(true);
+$('tour-free').onclick = () => runTour(false);
+
 /* Einrasten über die Form: Griffe stehen aus der Wand heraus. Strahlen im Raster um den Tipp,
    Wandebene aus dem Rand des Ausschnitts, alles was über 1,2 cm davor liegt, gilt als Griff. */
 const probeR = new THREE.Raycaster(); probeR.firstHitOnly = true;
-function snapRelief(x, y){
-  const rect = canvas.getBoundingClientRect(), S = 4, K = 20, G = 2 * K + 1;
+function snapRelief(x, y, S = 4, K = 20){
+  const rect = canvas.getBoundingClientRect(), G = 2 * K + 1;
   const P = new Array(G * G).fill(null);
   for (let j = 0; j < G; j++) for (let i = 0; i < G; i++){
     const sx = x + (i - K) * S, sy = y + (j - K) * S;
@@ -625,15 +742,28 @@ function snapRelief(x, y){
    bleibt der Kreis, wie getippt (dann von Hand anpassen). */
 try{ $('snap').checked = localStorage.getItem('dml-snap') !== '0'; }catch(e){}
 $('snap').addEventListener('change', () => { try{ localStorage.setItem('dml-snap', $('snap').checked ? '1' : '0'); }catch(e){} });
-function snapHold(x, y){
+/* Ganzes Bild einmal lesen (ohne Kreise); für die Zufallstour */
+function readFrame(){
+  markerGroup.visible = false; renderer.render(scene, camera); markerGroup.visible = true;
+  const gl = renderer.getContext(), W = canvas.width, H = canvas.height, buf = new Uint8Array(W * H * 4);
+  gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+  return {buf, W, H};
+}
+function snapHold(x, y, frame){
   const rect = canvas.getBoundingClientRect(), dpr = canvas.width / rect.width, H = Math.round(80 * dpr);
   const px = Math.round((x - rect.left) * dpr), py = Math.round((rect.bottom - y) * dpr);
   const x0 = Math.max(0, px - H), y0 = Math.max(0, py - H);
   const W = Math.min(canvas.width, px + H + 1) - x0, Hh = Math.min(canvas.height, py + H + 1) - y0;
   if (W < 20 || Hh < 20) return null;
-  markerGroup.visible = false; renderer.render(scene, camera); markerGroup.visible = true;
-  const gl = renderer.getContext(), buf = new Uint8Array(W * Hh * 4);
-  gl.readPixels(x0, y0, W, Hh, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+  let buf;
+  if (frame){
+    buf = new Uint8Array(W * Hh * 4);
+    for (let j = 0; j < Hh; j++) buf.set(frame.buf.subarray(((y0 + j) * frame.W + x0) * 4, ((y0 + j) * frame.W + x0 + W) * 4), j * W * 4);
+  } else {
+    markerGroup.visible = false; renderer.render(scene, camera); markerGroup.visible = true;
+    const gl = renderer.getContext(); buf = new Uint8Array(W * Hh * 4);
+    gl.readPixels(x0, y0, W, Hh, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+  }
   /* Farbmerkmale: Helligkeit (schwach gewichtet) und zwei Farbachsen */
   const n = W * Hh, F = new Float32Array(n * 3);
   for (let i = 0; i < n; i++){
@@ -934,7 +1064,7 @@ function startEdit(r){
   $('r-name').value = r ? r.name : '';
   $('r-grade').value = r ? r.grade : '5';
   $('r-note').value = r ? (r.note || '') : '';
-  setType('start', false);
+  setType('start', false); $('tour-ask').hidden = true;
   rebuild(); dirty = false; armCancel(false);
   setMode('edit');
   if (!r) flash('Tippe auf die Griffe, um Kreise zu setzen. Einen Kreis ziehen verschiebt ihn.');
@@ -1125,7 +1255,7 @@ async function openModel(name, bytes, getBuf){
     });
     model = gltf.scene; scene.add(model);
     const box = new THREE.Box3().setFromObject(model);
-    box.getCenter(center); box.getSize(size);
+    box.getCenter(center); box.getSize(size); floorY = box.min.y;
     $('s-size').textContent = (bytes / 1048576).toFixed(1) + ' MB';
     $('s-time').textContent = ((performance.now() - t0) / 1000).toFixed(1) + ' s';
     startView();
