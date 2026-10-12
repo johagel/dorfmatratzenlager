@@ -15,7 +15,7 @@ jobs:
   backup:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Daten holen und verschlüsseln
         env:
           GROUP_CODE: ${{ secrets.GROUP_CODE }}

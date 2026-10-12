@@ -25,7 +25,7 @@ jobs:
           echo "Antwort: $code"
           test "$code" = 200
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: github.event.schedule == '23 5 1 * *'
       - name: Lebenszeichen
         if: github.event.schedule == '23 5 1 * *'
