@@ -314,9 +314,18 @@ function resize(){
 new ResizeObserver(resize).observe(stage);
 
 /* Blick von der Raummitte aus: ein Finger dreht, zwei Finger verschieben und zoomen */
+/* Startblick je Scan (Joachim): Raummitte auf 1,6 m über der Matte, Blick zur 45°-Wand. Höhen relativ zur Matte */
+const START_VIEW = {v2:{pos:[-0.43, 1.6, -0.77], look:[-2.4, 1.77, -0.77]}};
 function startView(){
-  camera.position.copy(center);
-  controls.target.copy(center).add(new THREE.Vector3(0, 0, -0.01));
+  const sv = START_VIEW[loadedModel];
+  if (sv){
+    camera.position.set(sv.pos[0], floorY + sv.pos[1], sv.pos[2]);
+    const dir = new THREE.Vector3(sv.look[0], floorY + sv.look[1], sv.look[2]).sub(camera.position).normalize();
+    controls.target.copy(camera.position).addScaledVector(dir, 0.01);
+  } else {
+    camera.position.copy(center);
+    controls.target.copy(center).add(new THREE.Vector3(0, 0, -0.01));
+  }
   camera.fov = 70; camera.updateProjectionMatrix(); controls.update();
   syncZoom();
 }
@@ -1113,7 +1122,7 @@ function openRoute(id){
 }
 function startEdit(r){
   route = r;
-  if (!r) ensureModel(newestModel);
+  if (!r) ensureModel(newestModel).then(() => { back = 0; startView(); });
   marks = r ? r.marks.map(m => ({...m})) : [];
   $('r-name').value = r ? r.name : '';
   $('r-grade').value = r ? r.grade : '5';
@@ -1286,7 +1295,7 @@ function ensureModel(v){
   if (modelPromise && modelPromise.v === v) return modelPromise;
   const file = models[v];
   modelPromise = openModel('Scan ' + v, 0, async () => { const r = await fetch(file); if (!r.ok) throw new Error('Scan nicht gefunden (' + r.status + ')'); return r.arrayBuffer(); })
-    .then(() => { loadedModel = v; });
+    .then(() => { loadedModel = v; if (START_VIEW[v]) startView(); });
   modelPromise.v = v;
   return modelPromise;
 }
