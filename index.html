@@ -472,6 +472,7 @@ function showHands(){
 $('hands').onclick = () => {
   if (selected >= 0 && marks[selected].t === 'start'){
     const m = marks[selected]; m.h = (m.h || 1) === 1 ? 2 : 1; hands = m.h; placeMesh(meshes[selected], m); save();
+    if (m.h === 2) startDone();
   } else hands = hands === 1 ? 2 : 1;
   showHands();
 };
@@ -578,9 +579,12 @@ canvas.addEventListener('pointerup', e => {
   if (current === 'start') m.h = hands;
   marks.push(m); const mesh = buildMesh(m); meshes.push(mesh); markerGroup.add(mesh);
   select(marks.length - 1); justCreated = true; save();
-  /* Start komplett (zwei Griffe je eine Hand oder einer beidhändig): weiter mit normalen Griffen */
-  if (current === 'start' && marks.reduce((a, x) => a + (x.t === 'start' ? (x.h || 1) : 0), 0) >= 2){ hands = 1; setType('hold', false); }
+  startDone();
 });
+/* Start komplett (zwei Griffe je eine Hand oder einer beidhändig): weiter mit normalen Griffen */
+function startDone(){
+  if (current === 'start' && marks.reduce((a, x) => a + (x.t === 'start' ? (x.h || 1) : 0), 0) >= 2){ hands = 1; setType('hold', false); }
+}
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 
 /* ---------- Zufallstour ----------
