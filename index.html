@@ -297,7 +297,7 @@ let current = 'start', marks = [], meshes = [], selected = -1, justCreated = fal
 /* Gemeinsame Daten in Supabase. Der Publishable Key ist öffentlich; Zugriff nur mit Gruppen-Code (siehe supabase_einrichtung.sql) */
 const SB_URL = 'https://dryfdwazdeaprmrvzgiv.supabase.co', SB_KEY = 'sb_publishable_rFhTv60WchPuuMjHc9rnRQ_1B4J2eKf';
 const NEW_DAYS = 14;
-let models = {v1:'models/scan-v1.glb'}, newestModel = 'v1', loadedModel = null;
+let models = {v2:'models/scan-v2.glb'}, newestModel = 'v2', loadedModel = null;
 let groupCode = '';
 try{ groupCode = localStorage.getItem('dml-code') || ''; }catch(e){}
 let routes = [], route = null, mode = 'list', dirty = false;
@@ -1284,6 +1284,21 @@ function ensureModel(v){
   modelPromise.v = v;
   return modelPromise;
 }
+/* Boden = Mattenoberfläche: von oben senkrecht nach unten peilen, erste nach oben zeigende Fläche zählt.
+   Startpunkt der Kamera = Mitte dieser Bodenpunkte, 1,6 m darüber */
+function findFloor(box){
+  const down = new THREE.Raycaster(); down.ray.direction.set(0, -1, 0);
+  const ys = [], xs = [], zs = [], N = 9;
+  for (let i = 1; i < N; i++) for (let k = 1; k < N; k++){
+    down.ray.origin.set(box.min.x + (box.max.x - box.min.x) * i / N, box.max.y + 0.1, box.min.z + (box.max.z - box.min.z) * k / N);
+    const h = down.intersectObject(model, true).find(h => h.face && h.face.normal.y > 0.7);
+    if (h){ ys.push(h.point.y); xs.push(h.point.x); zs.push(h.point.z); }
+  }
+  if (ys.length < 5) return;
+  const med = a => a.slice().sort((p, q) => p - q)[a.length >> 1];
+  floorY = med(ys);
+  center.set(med(xs), floorY + 1.6, med(zs));
+}
 async function openModel(name, bytes, getBuf){
   $('hint').hidden = true; note('Lade ' + name + ' …');
   const t0 = performance.now();
@@ -1304,6 +1319,7 @@ async function openModel(name, bytes, getBuf){
     model = gltf.scene; scene.add(model);
     const box = new THREE.Box3().setFromObject(model);
     box.getCenter(center); box.getSize(size); floorY = box.min.y;
+    findFloor(box);
     $('s-size').textContent = (bytes / 1048576).toFixed(1) + ' MB';
     $('s-time').textContent = ((performance.now() - t0) / 1000).toFixed(1) + ' s';
     startView();
