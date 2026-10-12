@@ -109,6 +109,7 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
 .filter select{min-height:36px;padding:4px 8px}
 .size label.check{display:inline-flex;gap:6px;align-items:center;margin-left:auto;font-weight:600}
 .filter label.check{display:inline-flex;gap:6px;align-items:center;margin-left:auto}
+.filter label.check + label.check{margin-left:0}
 .filter input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
 #sheet li .who{color:var(--muted);font-weight:400;font-size:13px}
 #sheet li .sends{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--muted)}
@@ -171,10 +172,17 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
       <label class="check" for="f-open"><input id="f-open" type="checkbox">nur offene</label>
       <label class="check" for="f-fav"><input id="f-fav" type="checkbox">nur ★</label>
     </div>
+    <div id="filter2" class="row filter" role="group" aria-label="Ersteller und Sortierung">
+      <label for="f-by">Von</label><select id="f-by"><option value="">allen</option></select>
+      <label for="f-sort">Sortieren</label><select id="f-sort">
+        <option value="new">neueste zuerst</option><option value="old">älteste zuerst</option>
+        <option value="grade">Grad ↑</option><option value="grade-desc">Grad ↓</option><option value="name">Name A–Z</option>
+      </select>
+    </div>
     <p id="offline" class="warn" hidden></p>
     <ul id="list"></ul>
     <p id="list-empty" class="empty" hidden></p>
-    <div class="model">
+    <div class="model" hidden>
       <h3>Modell</h3>
       <div class="row" style="align-items:center">
         <div class="stats" aria-live="polite" style="margin-left:0">
@@ -1022,12 +1030,12 @@ $('my-note').addEventListener('input', () => {
 });
 /* Filter: Grad von–bis und nur offene; bleibt im Browser gespeichert */
 const gi = g => GRADES.indexOf(g);
-let filter = {from:'1-', to:'12+', open:false, fav:false};
+let filter = {from:'1-', to:'12+', open:false, fav:false, by:'', sort:'new'};
 try{ Object.assign(filter, JSON.parse(localStorage.getItem('boulder-filter') || '{}')); }catch(e){}
 ['f-from', 'f-to'].forEach(id => $(id).innerHTML = GRADES.map(g => `<option value="${g}">${g}</option>`).join(''));
-$('f-from').value = filter.from; $('f-to').value = filter.to; $('f-open').checked = filter.open; $('f-fav').checked = filter.fav;
-['f-from', 'f-to', 'f-open', 'f-fav'].forEach(id => $(id).addEventListener('change', () => {
-  filter = {from:$('f-from').value, to:$('f-to').value, open:$('f-open').checked, fav:$('f-fav').checked};
+$('f-from').value = filter.from; $('f-to').value = filter.to; $('f-open').checked = filter.open; $('f-fav').checked = filter.fav; $('f-sort').value = filter.sort;
+['f-from', 'f-to', 'f-open', 'f-fav', 'f-by', 'f-sort'].forEach(id => $(id).addEventListener('change', () => {
+  filter = {from:$('f-from').value, to:$('f-to').value, open:$('f-open').checked, fav:$('f-fav').checked, by:$('f-by').value, sort:$('f-sort').value};
   if (gi(filter.from) > gi(filter.to)){ filter.to = filter.from; $('f-to').value = filter.to; }
   try{ localStorage.setItem('boulder-filter', JSON.stringify(filter)); }catch(e){}
   showList();
@@ -1039,6 +1047,22 @@ $('tab-routes').onclick = () => { listTab = 'routes'; showList(); };
 $('tab-drafts').onclick = () => { listTab = 'drafts'; showList(); };
 $('tab-trash').onclick = () => { listTab = 'trash'; showList(); };
 const isNew = r => Date.now() - new Date(r.created).getTime() < NEW_DAYS * 864e5;
+/* Sortierung der Routenliste; bei Gleichstand nach Name */
+const byName = (a, b) => a.name.localeCompare(b.name, 'de');
+const SORTS = {
+  grade:(a, b) => gi(a.grade) - gi(b.grade) || byName(a, b),
+  'grade-desc':(a, b) => gi(b.grade) - gi(a.grade) || byName(a, b),
+  new:(a, b) => (b.created || '').localeCompare(a.created || ''),
+  old:(a, b) => (a.created || '').localeCompare(b.created || ''),
+  name:byName,
+};
+/* Auswahl "Von": alle, die eine sichtbare Route angelegt haben */
+function fillBy(live){
+  const names = [...new Set(live.filter(r => !r.draft).map(r => r.by).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
+  if (filter.by && !names.includes(filter.by)) names.push(filter.by);
+  $('f-by').innerHTML = '<option value="">allen</option>' + names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  $('f-by').value = filter.by;
+}
 function showList(){
   setMode('list'); showMe();
   const drafts = listTab === 'drafts', trash = listTab === 'trash';
@@ -1048,9 +1072,10 @@ function showList(){
   const live = routes.filter(r => !r.deleted_at);
   const nDrafts = live.filter(r => r.draft).length;
   $('tab-drafts').textContent = nDrafts ? `Projekte (${nDrafts})` : 'Projekte';
-  $('filter').hidden = drafts || trash;
+  $('filter').hidden = $('filter2').hidden = drafts || trash;
   $('new').hidden = trash; $('random').hidden = drafts || trash;
   $('model-ver').textContent = 'Scan ' + newestModel;
+  fillBy(live);
   const lo = gi(filter.from), hi = gi(filter.to);
   const shown = trash
     ? routes.filter(r => r.deleted_at).sort((a, b) => b.deleted_at.localeCompare(a.deleted_at))
@@ -1060,7 +1085,8 @@ function showList(){
       .filter(r => gi(r.grade) >= lo && gi(r.grade) <= hi)
       .filter(r => !filter.open || !(r.sends || []).includes(me))
       .filter(r => !filter.fav || favs.has(r.id))
-      .sort((a, b) => gi(a.grade) - gi(b.grade) || a.name.localeCompare(b.name, 'de'));
+      .filter(r => !filter.by || r.by === filter.by)
+      .sort(SORTS[filter.sort] || SORTS.new);
   $('list').innerHTML = shown.map(r => {
     const mine = !r.draft && !r.deleted_at && me && (r.sends || []).includes(me);
     const extra = r.deleted_at ? `<span class="who">gelöscht von ${esc(r.deleted_by || '–')}</span>`
@@ -1081,7 +1107,7 @@ function showList(){
 /* Zufallsroute: eine offene Route im eingestellten Grad-Bereich */
 $('random').onclick = () => {
   const lo = gi(filter.from), hi = gi(filter.to);
-  const pool = routes.filter(r => !r.deleted_at && !r.draft && gi(r.grade) >= lo && gi(r.grade) <= hi && !(r.sends || []).includes(me));
+  const pool = routes.filter(r => !r.deleted_at && !r.draft && gi(r.grade) >= lo && gi(r.grade) <= hi && !(r.sends || []).includes(me) && (!filter.by || r.by === filter.by));
   if (!pool.length) return flash(`Keine offene Route von ${filter.from} bis ${filter.to}.`);
   openRoute(pool[Math.floor(Math.random() * pool.length)].id);
 };
