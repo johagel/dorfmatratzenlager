@@ -85,8 +85,8 @@ textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 #fav[aria-pressed="true"]{color:#e0a400;border-color:#e0a400}
 .star{color:#e0a400}
 #my-note-box{width:100%;font-size:14px}
-#my-note-box summary{cursor:pointer;color:var(--muted);padding:4px 0}
-#my-note-box summary .muted{font-size:12px}
+#my-note-box .muted{font-size:12px}
+body.view header{display:none}
 #my-note{width:100%;margin-top:4px}
 .sends-who{font-size:13px}
 .tour-ask{align-items:center;font-size:14px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px}
@@ -197,6 +197,7 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
     <p id="d-warn" class="warn" hidden></p>
     <div class="row">
       <button id="d-back" type="button">‹ Zur Wand</button>
+      <button id="d-cancel" type="button">Abbrechen</button>
       <span class="sep"></span>
       <button id="d-draft" type="button">Als Projekt</button>
       <button id="save" class="primary" type="button">Speichern</button>
@@ -244,13 +245,14 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
   </div>
   <p id="v-note" class="note" hidden></p>
   <p id="v-sends" class="note sends-who"></p>
-  <details id="my-note-box">
-    <summary>Meine Notiz <span class="muted">(nur auf diesem Handy)</span></summary>
+  <div id="my-note-box" hidden>
+    <span class="muted">Meine Notiz (nur auf diesem Gerät)</span>
     <textarea id="my-note" rows="2" maxlength="400" placeholder="z. B. linker Fuß auf das Volumen, Schlüsselstelle oben"></textarea>
-  </details>
+  </div>
   <div class="row">
     <button id="sent" type="button" aria-pressed="false">✓ Geschafft</button>
     <button id="fav" type="button" aria-pressed="false" aria-label="Favorit">☆</button>
+    <button id="note-btn" type="button" aria-pressed="false" aria-label="Meine Notiz" title="Meine Notiz">📝</button>
     <button id="edit-btn" type="button">Bearbeiten</button>
     <button id="remove" type="button">Route löschen</button>
     <button id="restore" type="button" hidden>Wiederherstellen</button>
@@ -292,7 +294,7 @@ const markerGroup = new THREE.Group();
 scene.add(markerGroup);
 
 let model = null, center = new THREE.Vector3(), size = new THREE.Vector3(), floorY = 0;
-let current = 'start', marks = [], meshes = [], selected = -1, justCreated = false;
+let locked = false, current = 'start', marks = [], meshes = [], selected = -1, justCreated = false;
 /* Routen: lokal im Browser gespeichert. model = Version des Scans, auf dem die Route eingezeichnet wurde */
 /* Gemeinsame Daten in Supabase. Der Publishable Key ist öffentlich; Zugriff nur mit Gruppen-Code (siehe supabase_einrichtung.sql) */
 const SB_URL = 'https://dryfdwazdeaprmrvzgiv.supabase.co', SB_KEY = 'sb_publishable_rFhTv60WchPuuMjHc9rnRQ_1B4J2eKf';
@@ -530,7 +532,7 @@ stage.addEventListener('pointerdown', e => {
   pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
   if (pointers.size === 1){
     down = {x:e.clientX, y:e.clientY, t:performance.now()}; multi = false; dragging = false;
-    grab = mode === 'edit' ? circleAt(e.clientX, e.clientY) : -1;
+    grab = mode === 'edit' && !locked ? circleAt(e.clientX, e.clientY) : -1;
     controls.enabled = grab < 0;
   } else {
     multi = true; grab = -1; dragging = false; controls.enabled = true;
@@ -564,6 +566,7 @@ canvas.addEventListener('pointerup', e => {
   const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y), dt = performance.now() - down.t;
   down = null;
   if (moved > 8 || mode !== 'edit') return;
+  if (locked) return flash('Zum Ändern der Kreise unten auf „Kreise ändern“ tippen.');
   if (g >= 0 && dt <= 450){ select(g === selected ? -1 : g); return; }
   const hit = hitWall(e.clientX, e.clientY);
   if (!hit){ note('Hier ist keine Oberfläche getroffen. Tippe direkt auf die Wand.'); setTimeout(() => note(''), 2200); return; }
@@ -925,6 +928,7 @@ const esc = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>
 
 function setMode(m){
   mode = m;
+  document.body.classList.toggle('view', m === 'view');
   $('center').textContent = m === 'view' ? 'Start' : 'Mitte';
   $('sheet').hidden = m !== 'list';
   $('login').hidden = m !== 'login';
@@ -997,10 +1001,13 @@ function keepMine(){ try{ localStorage.setItem('dml-favs', JSON.stringify([...fa
 function showMine(){
   const on = favs.has(route.id);
   $('fav').setAttribute('aria-pressed', String(on)); $('fav').textContent = on ? '★' : '☆';
-  $('fav').hidden = $('my-note-box').hidden = !!route.deleted_at;
+  $('fav').hidden = $('note-btn').hidden = !!route.deleted_at;
   $('my-note').value = notes[route.id] || '';
-  $('my-note-box').open = !!notes[route.id];
+  showNote(!!notes[route.id] && !route.deleted_at);
 }
+/* Notiz nur bei Bedarf aufklappen, spart eine Zeile über dem Bild */
+function showNote(on){ $('my-note-box').hidden = !on; $('note-btn').setAttribute('aria-pressed', String(on)); }
+$('note-btn').onclick = () => { const on = $('my-note-box').hidden; showNote(on); if (on) $('my-note').focus(); };
 $('fav').onclick = () => {
   if (!route) return;
   if (favs.has(route.id)) favs.delete(route.id); else favs.add(route.id);
@@ -1130,7 +1137,10 @@ function startEdit(r){
   setType('start', false); $('tour-ask').hidden = true;
   rebuild(); dirty = false; armCancel(false);
   setMode('edit');
-  if (!r) flash('Tippe auf die Griffe, um Kreise zu setzen. Einen Kreis ziehen verschiebt ihn.');
+  /* Bestehende Route: erst Name, Grad und Kommentar; die Kreise sind gesperrt, bis man sie freigibt */
+  locked = !!r;
+  if (r){ editCam = r.cam || camState(); showDetails(); }
+  else flash('Tippe auf die Griffe, um Kreise zu setzen. Einen Kreis ziehen verschiebt ihn.');
 }
 $('routes').onclick = () => { if (mode === 'edit' && dirty) return flash('Bitte erst speichern oder abbrechen.'); showList(); };
 $('new').onclick = () => startEdit(null);
@@ -1139,13 +1149,28 @@ $('edit-btn').onclick = () => startEdit(route);
 /* Speichern in zwei Schritten: erst Kreise an der Wand, dann Name, Grad und Kommentar */
 let editCam = null;
 function warn(text){ $('d-warn').textContent = text; $('d-warn').hidden = !text; }
+function showDetails(){
+  select(-1); warn(''); $('save').textContent = 'Speichern';
+  $('d-back').textContent = locked ? '✎ Kreise ändern' : '‹ Zur Wand';
+  $('d-cancel').textContent = 'Abbrechen';
+  $('details').hidden = false; $('edit').hidden = true;
+}
 $('next').onclick = () => {
   if (!marks.length) return flash('Setze mindestens einen Kreis.');
-  editCam = camState(); select(-1);
-  warn(''); $('save').textContent = 'Speichern';
-  $('details').hidden = false;
+  editCam = camState(); showDetails();
 };
-$('d-back').onclick = () => { $('details').hidden = true; };
+$('d-back').onclick = () => {
+  if (locked){ locked = false; flash('Kreise sind jetzt änderbar. Mit „Weiter“ geht es zurück zum Speichern.'); }
+  $('details').hidden = true; $('edit').hidden = false;
+};
+['r-name', 'r-grade', 'r-note'].forEach(id => $(id).addEventListener('input', () => { dirty = true; }));
+$('d-cancel').onclick = () => {
+  if (dirty && $('d-cancel').textContent === 'Abbrechen'){
+    $('d-cancel').textContent = 'Verwerfen?';
+    return setTimeout(() => { $('d-cancel').textContent = 'Abbrechen'; }, 3000);
+  }
+  dirty = false; route ? openRoute(route.id) : showList();
+};
 async function store(draft){
   const name = $('r-name').value.trim() || (draft ? 'Projekt vom ' + new Date().toLocaleDateString('de-DE') : '');
   if (!name){ $('r-name').focus(); return warn('Gib der Route einen Namen.'); }
