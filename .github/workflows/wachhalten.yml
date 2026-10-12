@@ -1,0 +1,38 @@
+# Hält die Supabase-Datenbank wach: Gratisprojekte werden nach 7 Tagen ohne Zugriff pausiert.
+# Zweimal pro Woche eine kleine Anfrage. Einmal im Monat zusätzlich ein Mini-Commit,
+# weil GitHub geplante Abläufe in Repositories ohne Aktivität nach 60 Tagen abschaltet.
+name: Datenbank wach halten
+
+on:
+  schedule:
+    - cron: '17 5 * * 1,4'   # Montag und Donnerstag, 5:17 UTC
+    - cron: '23 5 1 * *'     # Monatserster: Lebenszeichen ins Repository
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Supabase anfragen
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+            'https://dryfdwazdeaprmrvzgiv.supabase.co/rest/v1/rpc/check_group' \
+            -H 'apikey: sb_publishable_rFhTv60WchPuuMjHc9rnRQ_1B4J2eKf' \
+            -H 'Content-Type: application/json' -d '{}')
+          echo "Antwort: $code"
+          test "$code" = 200
+
+      - uses: actions/checkout@v4
+        if: github.event.schedule == '23 5 1 * *'
+      - name: Lebenszeichen
+        if: github.event.schedule == '23 5 1 * *'
+        run: |
+          date -u +%F > .github/lebenszeichen.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/lebenszeichen.txt
+          git commit -m 'Lebenszeichen' || exit 0
+          git push
