@@ -578,6 +578,8 @@ canvas.addEventListener('pointerup', e => {
   if (current === 'start') m.h = hands;
   marks.push(m); const mesh = buildMesh(m); meshes.push(mesh); markerGroup.add(mesh);
   select(marks.length - 1); justCreated = true; save();
+  /* Start komplett (zwei Griffe je eine Hand oder einer beidhändig): weiter mit normalen Griffen */
+  if (current === 'start' && marks.reduce((a, x) => a + (x.t === 'start' ? (x.h || 1) : 0), 0) >= 2){ hands = 1; setType('hold', false); }
 });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 
