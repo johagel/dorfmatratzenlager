@@ -929,6 +929,7 @@ const esc = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>
 function setMode(m){
   mode = m;
   document.body.classList.toggle('view', m === 'view');
+  $('routes').hidden = m === 'list' || m === 'login';
   $('center').textContent = m === 'view' ? 'Start' : 'Mitte';
   $('sheet').hidden = m !== 'list';
   $('login').hidden = m !== 'login';
