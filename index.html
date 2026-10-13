@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2f6f4f">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192-v3.png">
@@ -29,7 +29,7 @@
   --bg:#141a17; --panel:#1e2622; --fg:#e8ece9; --muted:#9aa6a0; --line:#34403a;
   --accent:#58c28b; --accent-fg:#0d1511; --stage:#232a26;
   --c-start:#3ed186; --c-hold:#6b9bff; --c-foot:#f1a93a; --c-top:#ff6b6b; color-scheme:dark}
-html,body{height:100%;margin:0}
+html,body{height:100%;margin:0;overflow:hidden;overscroll-behavior:none;-webkit-text-size-adjust:100%;text-size-adjust:100%}
 [hidden]{display:none!important}
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:15px;display:flex;flex-direction:column;overflow:hidden}
@@ -87,6 +87,12 @@ textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 #my-note-box{width:100%;font-size:14px}
 #my-note-box .muted{font-size:12px}
 body.view header{display:none}
+/* ohne Kopfleiste: Platz für die iPhone-Statusleiste lassen */
+body.view #routebar,body.view #msg{top:calc(12px + env(safe-area-inset-top,0px))}
+/* iPhone vergrößert die Seite beim Tippen in Felder unter 16 px und bleibt dann verschoben */
+input,select,textarea{font-size:16px!important}
+header,footer{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+#nav{right:max(12px,env(safe-area-inset-right,0px))}
 #my-note{width:100%;margin-top:4px}
 .sends-who{font-size:13px}
 .tour-ask{align-items:center;font-size:14px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px}
