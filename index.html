@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#2f6f4f">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192-v3.png">
-<link rel="apple-touch-icon" href="icons/icon-180-v3.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180-v3.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Dorfmatratzenlager">
@@ -361,6 +361,8 @@ function moveCam(d){
   camera.position.addScaledVector(dir, d); controls.target.addScaledVector(dir, d);
 }
 const probe = new THREE.Raycaster(); probe.firstHitOnly = true;
+/* Zwei-Finger-Zoom gedämpft: am iPhone war er zu schnell */
+const PINCH_DAMP = 0.5;
 function zoom(f){
   if (f > 1){
     if (fovGoal < MAX_FOV){ fovGoal = Math.min(MAX_FOV, fovGoal * f); }
@@ -556,7 +558,7 @@ stage.addEventListener('pointerdown', e => {
 canvas.addEventListener('pointermove', e => {
   if (!pointers.has(e.pointerId)) return;
   pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
-  if (pointers.size === 2){ const d = pinch(); if (pinchDist > 0 && d > 0) zoom(pinchDist / d); pinchDist = d; return; }
+  if (pointers.size === 2){ const d = pinch(); if (pinchDist > 0 && d > 0) zoom(Math.pow(pinchDist / d, PINCH_DAMP)); pinchDist = d; return; }
   if (grab >= 0 && down){
     if (!dragging && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6){ dragging = true; select(grab); }
     if (dragging){
