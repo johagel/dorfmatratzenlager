@@ -301,14 +301,16 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(70, 1, 0.01, 100);
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
-controls.rotateSpeed = -0.4; controls.panSpeed = 150;
+/* Drehtempo passt sich dem Zoom an (siehe Bildschleife), damit Schwenken immer gleich schnell wirkt */
+const ROTATE_AT_90 = -0.4;
+controls.rotateSpeed = ROTATE_AT_90; controls.panSpeed = 150;
 controls.enableZoom = false;
 controls.touches.TWO = THREE.TOUCH.PAN;
 const markerGroup = new THREE.Group();
 scene.add(markerGroup);
 
 let model = null, center = new THREE.Vector3(), size = new THREE.Vector3(), floorY = 0;
-let locked = false, current = 'start', marks = [], meshes = [], selected = -1, justCreated = false;
+let current = 'start', marks = [], meshes = [], selected = -1, justCreated = false;
 /* Routen: lokal im Browser gespeichert. model = Version des Scans, auf dem die Route eingezeichnet wurde */
 /* Gemeinsame Daten in Supabase. Der Publishable Key ist öffentlich; Zugriff nur mit Gruppen-Code (siehe supabase_einrichtung.sql) */
 const SB_URL = 'https://dryfdwazdeaprmrvzgiv.supabase.co', SB_KEY = 'sb_publishable_rFhTv60WchPuuMjHc9rnRQ_1B4J2eKf';
@@ -542,23 +544,36 @@ function circleAt(x, y){
   });
   return best;
 }
+const resizing = () => mode === 'edit' && selected >= 0 && !!marks[selected];
 /* Capture-Phase: läuft vor der Kamerasteuerung, damit Ziehen am Kreis die Ansicht nicht dreht */
 stage.addEventListener('pointerdown', e => {
   if (e.target !== canvas) return;
   pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
   if (pointers.size === 1){
     down = {x:e.clientX, y:e.clientY, t:performance.now()}; multi = false; dragging = false;
-    grab = mode === 'edit' && !locked ? circleAt(e.clientX, e.clientY) : -1;
+    grab = mode === 'edit' ? circleAt(e.clientX, e.clientY) : -1;
     controls.enabled = grab < 0;
   } else {
-    multi = true; grab = -1; dragging = false; controls.enabled = true;
+    multi = true; grab = -1; dragging = false;
+    /* Mit ausgewähltem Kreis ändern zwei Finger seine Größe statt den Zoom */
+    controls.enabled = !resizing();
     if (pointers.size === 2) pinchDist = pinch();
   }
 }, true);
 canvas.addEventListener('pointermove', e => {
   if (!pointers.has(e.pointerId)) return;
   pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
-  if (pointers.size === 2){ const d = pinch(); if (pinchDist > 0 && d > 0) zoom(Math.pow(pinchDist / d, PINCH_DAMP)); pinchDist = d; return; }
+  if (pointers.size === 2){
+    const d = pinch();
+    if (pinchDist > 0 && d > 0){
+      if (resizing()){
+        const m = marks[selected], cm = Math.min(30, Math.max(3, m.r * 100 * d / pinchDist));
+        m.r = +(cm / 100).toFixed(3); placeMesh(meshes[selected], m); save();
+        $('radius').value = Math.round(cm); $('radius-val').textContent = Math.round(cm) + ' cm';
+      } else zoom(Math.pow(pinchDist / d, PINCH_DAMP));
+    }
+    pinchDist = d; return;
+  }
   if (grab >= 0 && down){
     if (!dragging && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6){ dragging = true; select(grab); }
     if (dragging){
@@ -574,6 +589,7 @@ canvas.addEventListener('pointermove', e => {
 });
 const lift = e => { pointers.delete(e.pointerId); if (pointers.size < 2) pinchDist = 0; if (!pointers.size) controls.enabled = true; };
 canvas.addEventListener('pointercancel', e => { lift(e); down = null; dragging = false; grab = -1; });
+let lastTap = null, tapHint = 0;
 canvas.addEventListener('pointerup', e => {
   lift(e);
   if (dragging){ dragging = false; grab = -1; down = null; save(); return; }
@@ -582,11 +598,20 @@ canvas.addEventListener('pointerup', e => {
   const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y), dt = performance.now() - down.t;
   down = null;
   if (moved > 8 || mode !== 'edit') return;
-  if (locked) return flash('Zum Ändern der Kreise unten auf „Kreise ändern“ tippen.');
-  if (g >= 0 && dt <= 450){ select(g === selected ? -1 : g); return; }
+  if (g >= 0 && dt <= 450){ clearTimeout(tapHint); lastTap = null; select(g === selected ? -1 : g); return; }
+  if (dt > 450) return;
+  /* Neuer Kreis nur per Doppeltipp, damit ein versehentlicher Tipp nichts setzt; ein Tipp hebt nur die Auswahl auf */
+  const now = performance.now();
+  if (!lastTap || now - lastTap.t > 400 || Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) > 30){
+    lastTap = {x:e.clientX, y:e.clientY, t:now};
+    const hadSel = selected >= 0; if (hadSel) select(-1);
+    clearTimeout(tapHint);
+    if (!hadSel) tapHint = setTimeout(() => flash('Doppeltippen setzt einen Kreis.'), 420);
+    return;
+  }
+  clearTimeout(tapHint); lastTap = null;
   const hit = hitWall(e.clientX, e.clientY);
   if (!hit){ note('Hier ist keine Oberfläche getroffen. Tippe direkt auf die Wand.'); setTimeout(() => note(''), 2200); return; }
-  if (dt > 450) return;
   const n = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : ray.ray.direction.clone().negate();
   if (n.dot(ray.ray.direction) > 0) n.negate();
   let p = hit.point.clone().addScaledVector(n, 0.01), rad = +$('radius').value / 100;
@@ -1172,10 +1197,7 @@ function startEdit(r){
   setType('start', false); $('tour-ask').hidden = true;
   rebuild(); dirty = false; armCancel(false);
   setMode('edit');
-  /* Bestehende Route: erst Name, Grad und Kommentar; die Kreise sind gesperrt, bis man sie freigibt */
-  locked = !!r;
-  if (r){ editCam = r.cam || camState(); showDetails(); }
-  else flash('Tippe auf die Griffe, um Kreise zu setzen. Einen Kreis ziehen verschiebt ihn.');
+  flash('Doppeltippe auf einen Griff, um einen Kreis zu setzen. Ziehen verschiebt ihn, zwei Finger ändern seine Größe.');
 }
 $('routes').onclick = () => { if (mode === 'edit' && dirty) return flash('Bitte erst speichern oder abbrechen.'); showList(); };
 $('new').onclick = () => startEdit(null);
@@ -1186,7 +1208,6 @@ let editCam = null;
 function warn(text){ $('d-warn').textContent = text; $('d-warn').hidden = !text; }
 function showDetails(){
   select(-1); warn(''); $('save').textContent = 'Speichern';
-  $('d-back').textContent = locked ? '✎ Kreise ändern' : '‹ Zur Wand';
   $('d-cancel').textContent = 'Abbrechen';
   $('details').hidden = false; $('edit').hidden = true;
 }
@@ -1195,7 +1216,6 @@ $('next').onclick = () => {
   editCam = camState(); showDetails();
 };
 $('d-back').onclick = () => {
-  if (locked){ locked = false; flash('Kreise sind jetzt änderbar. Mit „Weiter“ geht es zurück zum Speichern.'); }
   $('details').hidden = true; $('edit').hidden = false;
 };
 ['r-name', 'r-grade', 'r-note'].forEach(id => $(id).addEventListener('input', () => { dirty = true; }));
@@ -1409,6 +1429,7 @@ ensureModel(newestModel);
 let frames = 0, last = performance.now();
 renderer.setAnimationLoop(() => {
   easeZoom();
+  controls.rotateSpeed = ROTATE_AT_90 * camera.fov / 90;
   controls.update();
   /* Kreise zeigen immer zur Kamera und bleiben dadurch rund */
   for (const g of meshes) g.quaternion.copy(camera.quaternion);
