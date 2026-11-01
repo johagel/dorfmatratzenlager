@@ -17,18 +17,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Supabase anfragen
+        # Bis zu 6 Versuche im Abstand von 30 s, weil einzelne Läufe an
+        # kurzen Netz- oder DNS-Störungen scheitern können (z. B. 1.11.2026).
         run: |
           code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+            --retry 5 --retry-delay 30 --retry-all-errors --max-time 30 \
             'https://dryfdwazdeaprmrvzgiv.supabase.co/rest/v1/rpc/check_group' \
             -H 'apikey: sb_publishable_rFhTv60WchPuuMjHc9rnRQ_1B4J2eKf' \
-            -H 'Content-Type: application/json' -d '{}')
+            -H 'Content-Type: application/json' -d '{}') || true
           echo "Antwort: $code"
           test "$code" = 200
 
+      # Lebenszeichen auch dann, wenn die Anfrage oben scheitert,
+      # sonst schaltet GitHub den Ablauf nach 60 Tagen ab.
       - uses: actions/checkout@v5
-        if: github.event.schedule == '23 5 1 * *'
+        if: always() && github.event.schedule == '23 5 1 * *'
       - name: Lebenszeichen
-        if: github.event.schedule == '23 5 1 * *'
+        if: always() && github.event.schedule == '23 5 1 * *'
         run: |
           date -u +%F > .github/lebenszeichen.txt
           git config user.name 'github-actions[bot]'
