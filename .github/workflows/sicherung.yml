@@ -22,7 +22,15 @@ jobs:
         run: |
           if [ -z "$GROUP_CODE" ]; then echo "Secret GROUP_CODE fehlt"; exit 1; fi
           base='https://dryfdwazdeaprmrvzgiv.supabase.co/rest/v1'
-          get() { curl -sSf "$base/$1" -H 'apikey: sb_publishable_rFhTv60WchPuuMjHc9rnRQ_1B4J2eKf' -H "x-group-code: $GROUP_CODE"; }
+          key='sb_publishable_rFhTv60WchPuuMjHc9rnRQ_1B4J2eKf'
+          # Erst prüfen, ob Supabase erreichbar ist (bis zu 6 Versuche), damit
+          # ein pausiertes Projekt eine verständliche Fehlermeldung ergibt.
+          if ! curl -sSf -o /dev/null --retry 5 --retry-delay 30 --retry-all-errors --max-time 60 \
+               "$base/models?select=*&limit=1" -H "apikey: $key"; then
+            echo "::error::Supabase nicht erreichbar. Ist das Projekt pausiert? Im Supabase-Dashboard 'Resume project' klicken und die Sicherung unter Actions von Hand neu starten."
+            exit 1
+          fi
+          get() { curl -sSf --retry 3 --retry-delay 10 "$base/$1" -H "apikey: $key" -H "x-group-code: $GROUP_CODE"; }
           routes=$(get 'routes?select=*'); sends=$(get 'sends?select=*'); models=$(get 'models?select=*')
           n=$(echo "$routes" | jq length)
           if [ "$n" = 0 ]; then echo "Keine Routen gelesen (Code falsch?)"; exit 1; fi

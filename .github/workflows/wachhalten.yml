@@ -1,11 +1,12 @@
 # Hält die Supabase-Datenbank wach: Gratisprojekte werden nach 7 Tagen ohne Zugriff pausiert.
-# Zweimal pro Woche eine kleine Anfrage. Einmal im Monat zusätzlich ein Mini-Commit,
+# Täglich einige kleine Anfragen (Funktion und Tabellen), weil zwei Pings pro Woche
+# im Oktober 2026 nicht gereicht haben. Einmal im Monat zusätzlich ein Mini-Commit,
 # weil GitHub geplante Abläufe in Repositories ohne Aktivität nach 60 Tagen abschaltet.
 name: Datenbank wach halten
 
 on:
   schedule:
-    - cron: '17 5 * * 1,4'   # Montag und Donnerstag, 5:17 UTC
+    - cron: '17 5 * * *'     # täglich, 5:17 UTC
     - cron: '23 5 1 * *'     # Monatserster: Lebenszeichen ins Repository
   workflow_dispatch:
 
@@ -17,18 +18,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Supabase anfragen
+        # Bis zu 6 Versuche je Anfrage im Abstand von 30 s, weil einzelne Läufe an
+        # kurzen Netz- oder DNS-Störungen scheitern können.
         run: |
-          code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
-            'https://dryfdwazdeaprmrvzgiv.supabase.co/rest/v1/rpc/check_group' \
-            -H 'apikey: sb_publishable_rFhTv60WchPuuMjHc9rnRQ_1B4J2eKf' \
-            -H 'Content-Type: application/json' -d '{}')
-          echo "Antwort: $code"
-          test "$code" = 200
+          base='https://dryfdwazdeaprmrvzgiv.supabase.co/rest/v1'
+          key='sb_publishable_rFhTv60WchPuuMjHc9rnRQ_1B4J2eKf'
+          ok=1
+          ask() {
+            code=$(curl -sS -o /dev/null -w '%{http_code}' \
+              --retry 5 --retry-delay 30 --retry-all-errors --max-time 30 \
+              -H "apikey: $key" "$@") || true
+            echo "$1 -> $code"
+            [ "$code" = 200 ] || ok=0
+          }
+          ask "$base/rpc/check_group" -X POST -H 'Content-Type: application/json' -d '{}'
+          ask "$base/models?select=*&limit=1"
+          ask "$base/routes?select=*&limit=1"
+          ask "$base/sends?select=*&limit=1"
+          [ "$ok" = 1 ]
 
+      # Lebenszeichen auch dann, wenn die Anfrage oben scheitert,
+      # sonst schaltet GitHub den Ablauf nach 60 Tagen ab.
       - uses: actions/checkout@v5
-        if: github.event.schedule == '23 5 1 * *'
+        if: always() && github.event.schedule == '23 5 1 * *'
       - name: Lebenszeichen
-        if: github.event.schedule == '23 5 1 * *'
+        if: always() && github.event.schedule == '23 5 1 * *'
         run: |
           date -u +%F > .github/lebenszeichen.txt
           git config user.name 'github-actions[bot]'
