@@ -1,4 +1,4 @@
-# Datensicherung alle zwei Monate: alle Routen, Haken und Modellversionen als Datei in backup/.
+# Datensicherung alle zwei Monate: alle Routen, Haken, Kommentare und Modellversionen als Datei in backup/.
 # Die Datei ist mit dem Gruppen-Code verschlüsselt, weil das Repository öffentlich ist.
 # Voraussetzung: Secret GROUP_CODE (Settings > Secrets and variables > Actions).
 name: Datensicherung
@@ -32,10 +32,11 @@ jobs:
           fi
           get() { curl -sSf --retry 3 --retry-delay 10 "$base/$1" -H "apikey: $key" -H "x-group-code: $GROUP_CODE"; }
           routes=$(get 'routes?select=*'); sends=$(get 'sends?select=*'); models=$(get 'models?select=*')
+          comments=$(get 'comments?select=*' || echo '[]')
           n=$(echo "$routes" | jq length)
           if [ "$n" = 0 ]; then echo "Keine Routen gelesen (Code falsch?)"; exit 1; fi
-          jq -n --argjson r "$routes" --argjson s "$sends" --argjson m "$models" \
-            '{erstellt: (now | todate), routes: $r, sends: $s, models: $m}' > /tmp/sicherung.json
+          jq -n --argjson r "$routes" --argjson s "$sends" --argjson m "$models" --argjson c "$comments" \
+            '{erstellt: (now | todate), routes: $r, sends: $s, models: $m, comments: $c}' > /tmp/sicherung.json
           f="backup/sicherung-$(date -u +%F).json.enc"
           openssl enc -aes-256-cbc -pbkdf2 -salt -in /tmp/sicherung.json -out "$f" -pass env:GROUP_CODE
           echo "$n Routen gesichert in $f"

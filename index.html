@@ -84,8 +84,16 @@ textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 #fav{min-width:44px;justify-content:center;font-size:18px;padding:6px 10px}
 #fav[aria-pressed="true"]{color:#e0a400;border-color:#e0a400}
 .star{color:#e0a400}
-#my-note-box{width:100%;font-size:14px}
-#my-note-box .muted{font-size:12px}
+#comments{width:100%;font-size:14px;display:flex;flex-direction:column;gap:6px}
+#c-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:32vh;overflow-y:auto}
+#c-list li{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+#c-list .c-head{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted)}
+#c-list .c-head b{color:var(--fg);font-weight:600}
+#c-list .c-text{margin:2px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.4}
+#c-list .c-del{margin-left:auto;min-height:28px;padding:0 8px;border:0;background:none;color:var(--muted);font-size:16px}
+#c-empty{margin:0;font-size:13px}
+#c-new{display:flex;gap:6px;align-items:flex-end}
+#c-text{flex:1;min-width:0}
 body.view header{display:none}
 /* ohne Kopfleiste: Platz für die iPhone-Statusleiste lassen */
 body.view #routebar,body.view #msg{top:calc(12px + env(safe-area-inset-top,0px))}
@@ -93,7 +101,6 @@ body.view #routebar,body.view #msg{top:calc(12px + env(safe-area-inset-top,0px))
 input,select,textarea{font-size:16px!important}
 header,footer{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 #nav{right:max(12px,env(safe-area-inset-right,0px))}
-#my-note{width:100%;margin-top:4px}
 .sends-who{font-size:13px}
 .tour-ask{align-items:center;font-size:14px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px}
 .note{margin:0;width:100%;color:var(--muted);font-size:14px;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere}
@@ -206,7 +213,7 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
     <input id="r-name" type="text" placeholder="z. B. Rosa Riese" maxlength="40" autocomplete="off">
     <label for="r-grade">Grad (UIAA)</label>
     <select id="r-grade"></select>
-    <label for="r-note">Kommentar <span class="muted">(optional)</span></label>
+    <label for="r-note">Beschreibung <span class="muted">(optional)</span></label>
     <textarea id="r-note" rows="3" maxlength="400" placeholder="z. B. Sitzstart, Kante rechts ist tabu"></textarea>
     <p id="d-warn" class="warn" hidden></p>
     <div class="row">
@@ -259,14 +266,18 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
   </div>
   <p id="v-note" class="note" hidden></p>
   <p id="v-sends" class="note sends-who"></p>
-  <div id="my-note-box" hidden>
-    <span class="muted">Meine Notiz (nur auf diesem Gerät)</span>
-    <textarea id="my-note" rows="2" maxlength="400" placeholder="z. B. linker Fuß auf das Volumen, Schlüsselstelle oben"></textarea>
+  <div id="comments" hidden>
+    <ul id="c-list" aria-label="Kommentare"></ul>
+    <p id="c-empty" class="muted" hidden>Noch keine Kommentare. Schreib den ersten.</p>
+    <div id="c-new">
+      <textarea id="c-text" rows="2" maxlength="500" placeholder="Kommentar für alle, z. B. linker Fuß auf das Volumen"></textarea>
+      <button id="c-send" class="primary" type="button">Senden</button>
+    </div>
   </div>
   <div class="row">
     <button id="sent" type="button" aria-pressed="false">✓ Geschafft</button>
     <button id="fav" type="button" aria-pressed="false" aria-label="Favorit">☆</button>
-    <button id="note-btn" type="button" aria-pressed="false" aria-label="Meine Notiz" title="Meine Notiz">📝</button>
+    <button id="note-btn" type="button" aria-pressed="false" aria-label="Kommentare" title="Kommentare">💬<span id="c-count"></span></button>
     <button id="edit-btn" type="button">Bearbeiten</button>
     <button id="remove" type="button">Route löschen</button>
     <button id="restore" type="button" hidden>Wiederherstellen</button>
@@ -936,8 +947,13 @@ const toRow = r => ({id:r.id, name:r.name, grade:r.grade, note:r.note || '', by_
   model:r.model, marks:r.marks, cam:r.cam || null, draft:!!r.draft, deleted_at:r.deleted_at || null, deleted_by:r.deleted_by || null});
 let loading = false;
 let offlineAt = null;
-function applyData(rows, sends, mods){
+/* Kommentare pro Route, für alle in der Gruppe sichtbar */
+let comments = {};
+const COM_SELECT = 'comments?select=id,route_id,person,body,created&order=created.asc';
+function applyData(rows, sends, mods, coms){
   routes = rows.map(fromRow);
+  comments = {};
+  (coms || []).forEach(c => (comments[c.route_id] = comments[c.route_id] || []).push(c));
   const byId = Object.fromEntries(routes.map(r => [r.id, r]));
   sends.forEach(s => byId[s.route_id] && byId[s.route_id].sends.push(s.person));
   if (mods.length){ models = Object.fromEntries(mods.map(m => [m.version, m.file])); newestModel = mods[mods.length - 1].version; }
@@ -945,18 +961,20 @@ function applyData(rows, sends, mods){
 async function loadAll(){
   loading = true;
   try{
-    const [rows, sends, mods] = await Promise.all([
+    const [rows, sends, mods, coms] = await Promise.all([
       api('routes?select=*&order=created.desc'),
       api('sends?select=route_id,person'),
-      api('models?select=version,file,created&order=created.asc')
+      api('models?select=version,file,created&order=created.asc'),
+      /* Kommentare: fehlt die Tabelle noch, läuft der Rest trotzdem */
+      api(COM_SELECT).catch(() => [])
     ]);
-    applyData(rows, sends, mods); offlineAt = null;
-    try{ localStorage.setItem('dml-cache', JSON.stringify({rows, sends, mods, at:new Date().toISOString()})); }catch(e){}
+    applyData(rows, sends, mods, coms); offlineAt = null;
+    try{ localStorage.setItem('dml-cache', JSON.stringify({rows, sends, mods, coms, at:new Date().toISOString()})); }catch(e){}
     return true;
   }catch(e){
     /* ohne Netz: letzter Stand auf dem Handy */
     let c = null; try{ c = JSON.parse(localStorage.getItem('dml-cache') || 'null'); }catch(e2){}
-    if (c){ applyData(c.rows, c.sends, c.mods); offlineAt = c.at; flash('Kein Netz: Du siehst den Stand vom ' + new Date(c.at).toLocaleString('de-DE', {dateStyle:'short', timeStyle:'short'}) + '.'); }
+    if (c){ applyData(c.rows, c.sends, c.mods, c.coms); offlineAt = c.at; flash('Kein Netz: Du siehst den Stand vom ' + new Date(c.at).toLocaleString('de-DE', {dateStyle:'short', timeStyle:'short'}) + '.'); }
     else flash('Keine Verbindung zum Server. Prüfe dein Internet und tippe auf „Aktualisieren“.');
     return false;
   }finally{ loading = false; }
@@ -1006,6 +1024,7 @@ $('login-go').onclick = async () => {
   /* Namen absichern: vergebener Name nur nach Rückfrage; bei neuem Namen ziehen die eigenen Haken mit */
   const old = me, known = new Set();
   routes.forEach(r => { if (r.by) known.add(r.by); (r.sends || []).forEach(p => known.add(p)); });
+  Object.values(comments).flat().forEach(c => known.add(c.person));
   const same = [...known].find(k => k.toLowerCase() === name.toLowerCase());
   let finalName = name;
   if (same && same.toLowerCase() !== old.toLowerCase()){
@@ -1031,36 +1050,81 @@ async function moveName(from, to){
     }
     if (mine.length) flash(`${mine.length} Haken auf „${to}“ übertragen.`);
   }catch(e){ flash('Haken konnten nicht übertragen werden. Keine Verbindung zum Server.'); }
+  /* eigene Kommentare ziehen mit um */
+  if (Object.values(comments).flat().some(c => c.person === from)){
+    try{
+      await api(`comments?person=eq.${encodeURIComponent(from)}`, {method:'PATCH', headers:{Prefer:'return=minimal'}, body:JSON.stringify({person:to})});
+      Object.values(comments).flat().forEach(c => { if (c.person === from) c.person = to; });
+    }catch(e){}
+  }
 }
 ['g-code', 'me-name'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') $('login-go').click(); }));
 $('me-change').onclick = () => showLogin();
 $('reload').onclick = async () => { await loadAll(); if (mode === 'list') showList(); };
 
-/* Favoriten und eigene Notizen: nur auf diesem Gerät, damit sie wirklich privat sind */
-const favs = new Set(), notes = {};
-try{ JSON.parse(localStorage.getItem('dml-favs') || '[]').forEach(id => favs.add(id)); Object.assign(notes, JSON.parse(localStorage.getItem('dml-notes') || '{}')); }catch(e){}
-function keepMine(){ try{ localStorage.setItem('dml-favs', JSON.stringify([...favs])); localStorage.setItem('dml-notes', JSON.stringify(notes)); }catch(e){ flash('Speichern auf dem Handy nicht möglich.'); } }
+/* Favoriten: nur auf diesem Gerät. Die früheren privaten Notizen sind durch Kommentare ersetzt. */
+const favs = new Set();
+try{ JSON.parse(localStorage.getItem('dml-favs') || '[]').forEach(id => favs.add(id)); localStorage.removeItem('dml-notes'); }catch(e){}
+function keepMine(){ try{ localStorage.setItem('dml-favs', JSON.stringify([...favs])); }catch(e){ flash('Speichern auf dem Handy nicht möglich.'); } }
 function showMine(){
   const on = favs.has(route.id);
   $('fav').setAttribute('aria-pressed', String(on)); $('fav').textContent = on ? '★' : '☆';
   $('fav').hidden = $('note-btn').hidden = !!route.deleted_at;
-  $('my-note').value = notes[route.id] || '';
-  showNote(!!notes[route.id] && !route.deleted_at);
+  $('c-text').value = '';
+  showComments(false);
 }
-/* Notiz nur bei Bedarf aufklappen, spart eine Zeile über dem Bild */
-function showNote(on){ $('my-note-box').hidden = !on; $('note-btn').setAttribute('aria-pressed', String(on)); }
-$('note-btn').onclick = () => { const on = $('my-note-box').hidden; showNote(on); if (on) $('my-note').focus(); };
 $('fav').onclick = () => {
   if (!route) return;
   if (favs.has(route.id)) favs.delete(route.id); else favs.add(route.id);
   keepMine(); showMine();
 };
-$('my-note').addEventListener('input', () => {
-  if (!route) return;
-  const t = $('my-note').value.trim();
-  if (t) notes[route.id] = $('my-note').value; else delete notes[route.id];
-  keepMine();
-});
+
+/* Kommentare: nur bei Bedarf aufklappen, spart eine Zeile über dem Bild */
+const when = t => new Date(t).toLocaleString('de-DE', {day:'numeric', month:'numeric', year:'2-digit', hour:'2-digit', minute:'2-digit'});
+function renderComments(){
+  const list = comments[route.id] || [];
+  $('c-count').textContent = list.length ? ' ' + list.length : '';
+  $('c-list').innerHTML = list.map(c => `<li><div class="c-head"><b>${esc(c.person)}</b><span>${when(c.created)}</span>${c.person === me
+    ? `<button class="c-del" type="button" data-id="${esc(c.id)}" aria-label="Kommentar löschen" title="Löschen">✕</button>` : ''}</div><p class="c-text">${esc(c.body)}</p></li>`).join('');
+  $('c-empty').hidden = list.length > 0;
+  $('c-list').querySelectorAll('.c-del').forEach(b => b.onclick = () => removeComment(b.dataset.id));
+  $('c-list').scrollTop = $('c-list').scrollHeight;
+}
+function showComments(on){
+  $('comments').hidden = !on; $('note-btn').setAttribute('aria-pressed', String(on));
+  renderComments();
+}
+$('note-btn').onclick = async () => {
+  const on = $('comments').hidden, r = route;
+  showComments(on);
+  if (!on) return;
+  /* frisch vom Server holen, damit neue Kommentare der anderen sofort da sind */
+  try{
+    comments[r.id] = await api(COM_SELECT + '&route_id=eq.' + encodeURIComponent(r.id));
+    if (route === r && !$('comments').hidden) renderComments();
+  }catch(e){}
+};
+$('c-send').onclick = async () => {
+  const r = route, body = $('c-text').value.trim();
+  if (!r || !body) return $('c-text').focus();
+  const c = {id:crypto.randomUUID(), route_id:r.id, person:me, body, created:new Date().toISOString()};
+  (comments[r.id] = comments[r.id] || []).push(c);
+  $('c-text').value = ''; renderComments();
+  try{
+    await api('comments', {method:'POST', headers:{Prefer:'return=minimal'}, body:JSON.stringify({id:c.id, route_id:c.route_id, person:c.person, body:c.body})});
+  }catch(e){
+    comments[r.id] = comments[r.id].filter(x => x !== c);
+    if (route === r){ $('c-text').value = body; renderComments(); }
+    flash('Kommentar nicht gespeichert. Keine Verbindung zum Server.');
+  }
+};
+async function removeComment(id){
+  const r = route, list = comments[r.id] || [], c = list.find(x => x.id === id);
+  if (!c || !confirm('Deinen Kommentar löschen?')) return;
+  comments[r.id] = list.filter(x => x !== c); renderComments();
+  try{ await api(`comments?id=eq.${encodeURIComponent(id)}`, {method:'DELETE'}); }
+  catch(e){ comments[r.id] = list; if (route === r) renderComments(); flash('Kommentar nicht gelöscht. Keine Verbindung zum Server.'); }
+}
 /* Filter: Grad von–bis und nur offene; bleibt im Browser gespeichert */
 const gi = g => GRADES.indexOf(g);
 let filter = {from:'1-', to:'12+', open:false, fav:false, by:'', sort:'new'};
@@ -1125,7 +1189,7 @@ function showList(){
     const extra = r.deleted_at ? `<span class="who">gelöscht von ${esc(r.deleted_by || '–')}</span>`
       : (!r.draft && isNew(r) ? '<span class="new">Neu</span>' : '');
     return `<li class="${mine ? 'done' : ''}"><button type="button" data-id="${r.id}">
-      <span class="grade">${esc(r.grade)}</span><span>${favs.has(r.id) ? '<span class="star" aria-label="Favorit">★</span> ' : ''}${esc(r.name)}${notes[r.id] ? ' <span aria-label="mit eigener Notiz">📝</span>' : ''}</span>${extra}
+      <span class="grade">${esc(r.grade)}</span><span>${favs.has(r.id) ? '<span class="star" aria-label="Favorit">★</span> ' : ''}${esc(r.name)}${(comments[r.id] || []).length ? ` <span class="who" aria-label="${comments[r.id].length} Kommentare">💬 ${comments[r.id].length}</span>` : ''}</span>${extra}
       <span class="who">von ${esc(r.by || '–')}</span>
       <span class="meta sends">${mine ? '✓ geschafft' : ''}</span></button></li>`;
   }).join('');
