@@ -67,8 +67,21 @@ button:disabled{opacity:.45;cursor:default}
 #routebar{position:absolute;left:12px;top:12px;max-width:calc(100% - 24px);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:4px 4px 4px 10px;display:flex;flex-wrap:wrap;gap:2px 8px;align-items:center;font-weight:600}
 #rb-by{font-weight:400;font-size:13px;color:var(--muted)}
 .grade{font-family:var(--mono);font-weight:500;font-size:13px;background:var(--accent);color:var(--accent-fg);border-radius:6px;padding:2px 7px}
-#sheet,#details,#login{position:absolute;inset:0;background:var(--bg);overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
-#sheet h2,#details h2,#login h2{font-size:18px;margin:0}
+#sheet,#details,#login,#stats{position:absolute;inset:0;background:var(--bg);overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+#sheet h2,#details h2,#login h2,#stats h2{font-size:18px;margin:0}
+/* Meine Übersicht: je Grad ein Balken, Länge = Routen in diesem Grad, gefüllt = davon geschafft */
+#stats{z-index:3;gap:10px}
+#st-sum{margin:0;font-size:15px}
+#st-sum b{font-size:28px;font-weight:700;letter-spacing:-.01em}
+#st-rows{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+#st-rows button{width:100%;border:0;background:none;padding:4px 0;min-height:36px;gap:10px;font-weight:400}
+#st-rows .grade{min-width:3.4em;text-align:center}
+#st-rows .bar{flex:1;display:flex;gap:2px;height:14px;min-width:0}
+#st-rows .bar i{display:block;height:100%;border-radius:4px}
+#st-rows .bar .got{background:var(--accent)}
+#st-rows .bar .rest{background:color-mix(in srgb,var(--muted) 35%,transparent)}
+#st-rows .num{font-family:var(--mono);font-size:13px;min-width:4.2em;text-align:right;color:var(--fg)}
+#st-rows .num span{color:var(--muted)}
 #details,#login{gap:8px}
 #login{z-index:5;max-width:none}
 #login input{flex:0 0 auto}
@@ -194,7 +207,7 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
     <button id="login-go" class="primary" type="button">Los geht’s</button>
   </section>
   <section id="sheet" hidden aria-label="Routenliste">
-    <div id="me-show" class="row me">Angemeldet als&nbsp;<b id="me-label"></b><button id="me-change" class="linkish" type="button">ändern</button><span class="sep"></span><button id="reload" class="linkish" type="button">↻ Aktualisieren</button></div>
+    <div id="me-show" class="row me">Angemeldet als&nbsp;<b id="me-label"></b><button id="me-change" class="linkish" type="button">ändern</button><span class="sep"></span><button id="stats-btn" class="linkish" type="button">Meine Übersicht</button><button id="reload" class="linkish" type="button">↻ Aktualisieren</button></div>
     <div id="install" hidden><span id="install-text"></span><span class="sep"></span><button id="install-go" class="primary" type="button" hidden>Installieren</button><button id="install-x" class="linkish" type="button">Später</button></div>
     <div class="row" style="align-items:center">
       <div class="tabs" role="group" aria-label="Liste">
@@ -233,6 +246,12 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
         <span id="model-ver" class="tag"></span>
       </div>
     </div>
+  </section>
+  <section id="stats" hidden aria-label="Meine Übersicht">
+    <div class="row" style="align-items:center"><h2>Meine Übersicht</h2><span class="sep"></span><button id="st-close" type="button">‹ Liste</button></div>
+    <p id="st-sum"></p>
+    <ul id="st-rows" aria-label="Geschaffte Routen je Grad"></ul>
+    <p id="st-hint" class="muted" style="margin:0;font-size:13px">Tippe auf einen Grad, um die Liste darauf einzustellen.</p>
   </section>
   <section id="details" hidden aria-label="Route speichern">
     <h2>Route speichern</h2>
@@ -1163,7 +1182,9 @@ let backArmed = 0, ownBack = 0;
 addEventListener('popstate', () => {
   /* von der App selbst ausgelöst (z. B. Knopf „Liste“): nur den Verlauf angleichen */
   if (ownBack > 0){ ownBack--; if (mode === 'view' || mode === 'edit') pushNav(); return; }
-  if (inApp() || mode === 'list' || mode === 'login') return;
+  if (inApp()) return;
+  if (!$('stats').hidden) return closeStats(true);
+  if (mode === 'list' || mode === 'login') return;
   if (mode === 'view'){
     if (!$('comments').hidden){ showComments(false); return pushNav(); }
     return showList();
@@ -1187,6 +1208,7 @@ function setMode(m){
   $('nav').hidden = m === 'list' || m === 'login';
   $('routebar').hidden = m !== 'view';
   $('details').hidden = true;
+  if (m !== 'list') $('stats').hidden = true;
   if (m === 'list' || m === 'login'){ marks = []; rebuild(); }
 }
 /* Anmelden: Gruppen-Code und Name einmal eingeben, bleiben im Browser */
@@ -1434,6 +1456,37 @@ function showList(){
   $('list').querySelectorAll('button').forEach(b => b.onclick = () => openRoute(b.dataset.id));
 }
 
+/* Meine Übersicht: geschaffte Routen je Grad (schwerster Grad oben). Ein Tipp auf einen Grad stellt den Filter darauf ein. */
+function showStats(){
+  const live = routes.filter(r => !r.deleted_at && !r.draft), by = {};
+  live.forEach(r => { const g = by[r.grade] = by[r.grade] || {n:0, got:0}; g.n++; if ((r.sends || []).includes(me)) g.got++; });
+  const grades = Object.keys(by).sort((a, b) => gi(b) - gi(a)), max = Math.max(1, ...grades.map(g => by[g].n));
+  const got = grades.reduce((a, g) => a + by[g].got, 0), top = grades.find(g => by[g].got > 0);
+  $('st-sum').innerHTML = live.length
+    ? `<b>${got}</b> von ${live.length} Routen geschafft${top ? `, schwerste: <span class="grade">${esc(top)}</span>` : ''}`
+    : 'Noch keine Routen vorhanden.';
+  $('st-rows').innerHTML = grades.map(g => {
+    const x = by[g], w = v => (v / max * 100).toFixed(1) + '%';
+    return `<li><button type="button" data-grade="${esc(g)}" aria-label="Grad ${esc(g)}: ${x.got} von ${x.n} geschafft">
+      <span class="grade">${esc(g)}</span>
+      <span class="bar">${x.got ? `<i class="got" style="width:${w(x.got)}"></i>` : ''}${x.n > x.got ? `<i class="rest" style="width:${w(x.n - x.got)}"></i>` : ''}</span>
+      <span class="num">${x.got}<span> / ${x.n}</span></span></button></li>`;
+  }).join('');
+  $('st-hint').hidden = !grades.length;
+  $('st-rows').querySelectorAll('button').forEach(b => b.onclick = () => {
+    $('f-from').value = $('f-to').value = b.dataset.grade;
+    $('f-from').dispatchEvent(new Event('change'));
+    listTab = 'routes'; closeStats(); showList();
+  });
+  $('stats').hidden = false; pushNav();
+}
+function closeStats(fromBack){
+  if ($('stats').hidden) return;
+  $('stats').hidden = true;
+  if (!fromBack && inApp() && !ownBack){ ownBack++; history.back(); }
+}
+$('stats-btn').onclick = showStats;
+$('st-close').onclick = () => closeStats();
 /* Zufallsroute: eine offene Route im eingestellten Grad-Bereich */
 $('random').onclick = () => {
   const lo = gi(filter.from), hi = gi(filter.to);
