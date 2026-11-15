@@ -82,8 +82,28 @@ textarea{font:inherit;color:var(--fg);background:var(--panel);border:1px solid v
 textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .warn{margin:0;padding:8px 12px;border-radius:8px;border:1px solid var(--c-top);color:var(--fg)}
 #fav{min-width:44px;justify-content:center;font-size:18px;padding:6px 10px}
-#fav[aria-pressed="true"]{color:#e0a400;border-color:#e0a400}
-.star{color:#e0a400}
+#fav[aria-pressed="true"]{color:var(--c-top);border-color:var(--c-top)}
+.heart{color:var(--c-top)}
+/* Zurück zur Liste: links, groß und in Mattenblau, damit der Daumen ihn sofort findet */
+#back-list{background:#3f8ad8;border-color:#3f8ad8;color:#fff;font-size:17px;min-height:48px;padding:9px 18px}
+/* Sternebewertung */
+.rate{align-items:center;gap:4px 10px;font-size:14px}
+#rate-stars{display:inline-flex}
+#rate-stars button{border:0;background:none;min-height:40px;min-width:36px;padding:0;justify-content:center;font-size:26px;line-height:1;color:var(--muted)}
+#rate-stars button.on{color:#e0a400}
+#rate-stars button[aria-pressed="true"]{box-shadow:none}
+.rating{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--muted);white-space:nowrap}
+.rating i{font-style:normal;color:#e0a400}
+/* Anfasser unter dem ausgewählten Kreis: verschiebt ihn, ohne dass der Daumen ihn verdeckt */
+#grip{position:absolute;left:0;top:0;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;padding:0;min-height:0;justify-content:center;
+  background:var(--panel);border:2px solid var(--fg);box-shadow:0 1px 6px rgb(0 0 0 / .35);font-size:22px;touch-action:none;cursor:grab;z-index:2}
+#grip::before{content:"";position:absolute;left:50%;bottom:100%;width:2px;height:14px;margin-left:-1px;background:#fff;box-shadow:0 0 0 1px rgb(0 0 0 / .5)}
+#grip.up::before{bottom:auto;top:100%}
+/* Text am Griff: Eingabe unten links neben den Gehen-Tasten, solange ein Kreis ausgewählt ist */
+#mtext{position:absolute;left:max(12px,env(safe-area-inset-left,0px));right:calc(max(12px,env(safe-area-inset-right,0px)) + 176px);bottom:12px;display:flex;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:5px;box-shadow:0 1px 4px rgb(0 0 0 / .18);z-index:2}
+#mtext input{min-height:36px;padding:4px 8px;width:100%}
+#remove-row{margin-top:auto;border-top:1px solid var(--line);padding-top:12px}
+#remove{color:var(--c-top)}
 #comments{width:100%;font-size:14px;display:flex;flex-direction:column;gap:6px}
 #c-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:32vh;overflow-y:auto}
 #c-list li{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
@@ -149,6 +169,8 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
   <div id="hint"><p>Der Scan wird geladen …</p></div>
   <div id="routebar" hidden><span id="rb-name"></span><span id="rb-grade" class="grade"></span><span id="rb-draft" class="tag" hidden>Projekt</span></div>
   <div id="msg" hidden></div>
+  <div id="mtext" hidden><input id="m-text" type="text" maxlength="40" autocomplete="off" enterkeyhint="done" aria-label="Text am ausgewählten Griff" placeholder="Text am Griff"></div>
+  <button id="grip" type="button" aria-label="Kreis verschieben" title="Ziehen verschiebt den Kreis" hidden>✥</button>
   <div id="nav">
     <button id="fwd" class="pad" type="button" aria-label="Vor">▲</button>
     <button id="center" type="button">Mitte</button>
@@ -183,13 +205,13 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
       <label for="f-from">Grad</label><select id="f-from"></select>
       <label for="f-to">bis</label><select id="f-to"></select>
       <label class="check" for="f-open"><input id="f-open" type="checkbox">nur offene</label>
-      <label class="check" for="f-fav"><input id="f-fav" type="checkbox">nur ★</label>
+      <label class="check" for="f-fav"><input id="f-fav" type="checkbox">nur ♥</label>
     </div>
     <div id="filter2" class="row filter" role="group" aria-label="Ersteller und Sortierung">
       <label for="f-by">Von</label><select id="f-by"><option value="">allen</option></select>
       <label for="f-sort">Sortieren</label><select id="f-sort">
         <option value="new">neueste zuerst</option><option value="old">älteste zuerst</option>
-        <option value="grade">Grad ↑</option><option value="grade-desc">Grad ↓</option><option value="name">Name A–Z</option>
+        <option value="grade">Grad ↑</option><option value="grade-desc">Grad ↓</option><option value="stars">beste Bewertung</option><option value="name">Name A–Z</option>
       </select>
     </div>
     <p id="offline" class="warn" hidden></p>
@@ -222,6 +244,9 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
       <span class="sep"></span>
       <button id="d-draft" type="button">Als Projekt</button>
       <button id="save" class="primary" type="button">Speichern</button>
+    </div>
+    <div id="remove-row" class="row" hidden>
+      <button id="remove" type="button">🗑 Route löschen</button>
     </div>
   </section>
 </div>
@@ -274,16 +299,20 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
       <button id="c-send" class="primary" type="button">Senden</button>
     </div>
   </div>
+  <div id="rate" class="row rate">
+    <span id="rate-stars" role="group" aria-label="Deine Bewertung">
+      <button type="button" data-star="1" aria-label="1 Stern">★</button><button type="button" data-star="2" aria-label="2 Sterne">★</button><button type="button" data-star="3" aria-label="3 Sterne">★</button><button type="button" data-star="4" aria-label="4 Sterne">★</button><button type="button" data-star="5" aria-label="5 Sterne">★</button>
+    </span>
+    <span id="rate-avg" class="muted"></span>
+  </div>
   <div class="row">
+    <button id="back-list" type="button">‹ Liste</button>
     <button id="sent" type="button" aria-pressed="false">✓ Geschafft</button>
-    <button id="fav" type="button" aria-pressed="false" aria-label="Favorit">☆</button>
+    <button id="fav" type="button" aria-pressed="false" aria-label="Favorit">♡</button>
     <button id="note-btn" type="button" aria-pressed="false" aria-label="Kommentare" title="Kommentare">💬<span id="c-count"></span></button>
     <button id="edit-btn" type="button">Bearbeiten</button>
-    <button id="remove" type="button">Route löschen</button>
     <button id="restore" type="button" hidden>Wiederherstellen</button>
     <button id="share" type="button" aria-expanded="false">Teilen</button>
-    <span class="sep"></span>
-    <button id="back-list" class="primary" type="button">Zur Liste</button>
   </div>
   <div id="share-row" class="row" hidden>
     <button id="share-link" type="button">🔗 Link teilen</button>
@@ -454,6 +483,96 @@ function labelTexture(text, color){
 const topLabelMat = new THREE.MeshBasicMaterial({map:labelTexture('TOP', css('--c-top')), transparent:true, depthTest:false, side:THREE.DoubleSide});
 const topLabelGeo = new THREE.PlaneGeometry(1.5, 0.61);
 const lineMat = new THREE.MeshBasicMaterial({color:0x000000, transparent:true, opacity:0.55, depthTest:false, side:THREE.DoubleSide});
+/* Text am Griff (m.c): dunkles Schild mit weißer Schrift, lange Texte in zwei Zeilen.
+   Größe und Platz bestimmt layoutNotes() in jedem Bild, damit das Schild lesbar bleibt und nichts verdeckt. */
+const noteGeo = new THREE.PlaneGeometry(1, 1);
+const NOTE_LINE = 76, NOTE_PAD = 26;
+function noteLines(text){
+  if (text.length <= 18 || !text.includes(' ')) return [text];
+  let cut = -1, mid = text.length / 2;
+  for (let i = 0; i < text.length; i++) if (text[i] === ' ' && (cut < 0 || Math.abs(i - mid) < Math.abs(cut - mid))) cut = i;
+  return [text.slice(0, cut), text.slice(cut + 1)];
+}
+function noteTexture(text){
+  const lines = noteLines(text), c = document.createElement('canvas'), x = c.getContext('2d');
+  const font = '600 56px "DM Sans", system-ui, sans-serif';
+  x.font = font;
+  c.width = Math.ceil(Math.max(...lines.map(l => x.measureText(l).width))) + 2 * NOTE_PAD + 8;
+  c.height = lines.length * NOTE_LINE + 28;
+  x.fillStyle = 'rgba(16,22,19,.86)'; x.beginPath(); x.roundRect(2, 2, c.width - 4, c.height - 4, 24); x.fill();
+  x.strokeStyle = 'rgba(255,255,255,.85)'; x.lineWidth = 3; x.stroke();
+  x.fillStyle = '#fff'; x.font = font; x.textAlign = 'center'; x.textBaseline = 'middle';
+  lines.forEach((l, i) => x.fillText(l, c.width / 2, 14 + NOTE_LINE * (i + 0.5) + 3));
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.generateMipmaps = false; t.minFilter = THREE.LinearFilter;
+  return {t, aspect:c.width / c.height, lines:lines.length};
+}
+function setNote(g, text){
+  const u = g.userData;
+  if ((u.noteText || '') === (text || '')) return;
+  if (u.note){ g.remove(u.note); u.note.material.map.dispose(); u.note.material.dispose(); u.note = null; }
+  u.noteText = text || ''; u.side = -1;
+  if (!text) return;
+  const tx = noteTexture(text);
+  u.note = new THREE.Mesh(noteGeo, new THREE.MeshBasicMaterial({map:tx.t, transparent:true, depthTest:false, side:THREE.DoubleSide}));
+  u.note.renderOrder = 12; u.noteAspect = tx.aspect; u.noteLines = tx.lines; u.note.visible = false;
+  g.add(u.note);
+}
+/* Schilder platzieren: Schrift mindestens 12 px hoch; bevorzugt über dem Kreis, sonst rechts, links, unten –
+   je nachdem, wo am wenigsten andere Kreise und Schilder liegen. Ein freier Platz wird behalten (kein Springen). */
+const NOTE_MIN_PX = 24, NOTE_WORLD = 0.042;
+const overlap = (a, b) => Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
+const camDir = new THREE.Vector3();
+function layoutNotes(){
+  if (!marks.some(m => m.c)) return;
+  const Hpx = stage.clientHeight || 1, Wpx = stage.clientWidth || 1, tan = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+  camera.getWorldDirection(camDir);
+  const info = marks.map((m, i) => {
+    tmpV.fromArray(m.p);
+    const dz = tmpV.clone().sub(camera.position).dot(camDir);
+    if (dz <= 0.05) return null;
+    const perPx = dz * 2 * tan / Hpx, q = tmpV.project(camera);
+    return {m, g:meshes[i], perPx, x:(q.x + 1) / 2 * Wpx, y:(1 - q.y) / 2 * Hpx, r:m.r / perPx};
+  });
+  /* Hindernisse: alle Kreise, dazu „TOP“-Schild und Start-Rechtecke, außerdem Tasten und Leisten über dem Bild */
+  const blocks = [], sr = stage.getBoundingClientRect();
+  for (const id of ['routebar', 'nav', 'mtext', 'grip']){
+    const el = $(id); if (el.hidden) continue;
+    const b = el.getBoundingClientRect();
+    blocks.push({x0:b.left - sr.left - 4, x1:b.right - sr.left + 4, y0:b.top - sr.top - 4, y1:b.bottom - sr.top + 4});
+  }
+  info.forEach(o => {
+    if (!o) return;
+    blocks.push({o, cx:o.x, cy:o.y, cr:o.r * 1.05});
+    if (o.m.t === 'top') blocks.push({o, x0:o.x - o.r * 0.75, x1:o.x + o.r * 0.75, y0:o.y - o.r * 1.86, y1:o.y - o.r * 1.24});
+    if (o.m.t === 'start') blocks.push({o, x0:o.x - o.r * 0.6, x1:o.x + o.r * 0.6, y0:o.y + o.r, y1:o.y + o.r * 1.57});
+  });
+  info.forEach(o => {
+    if (!o || !o.g) return;
+    const u = o.g.userData; if (!u.note) return;
+    const hLine = Math.max(NOTE_MIN_PX, NOTE_WORLD / o.perPx), h = hLine * (u.noteLines * NOTE_LINE + 28) / (NOTE_LINE + 28), w = h * u.noteAspect, gap = 5;
+    const up = o.m.t === 'top' ? o.r * 1.9 : o.r * 1.1, dn = o.m.t === 'start' ? o.r * 1.62 : o.r * 1.1;
+    const cand = [[0, -(up + gap + h / 2)], [o.r * 1.1 + gap + w / 2, 0], [-(o.r * 1.1 + gap + w / 2), 0], [0, dn + gap + h / 2]];
+    const cost = c => {
+      const b = {x0:o.x + c[0] - w / 2, x1:o.x + c[0] + w / 2, y0:o.y + c[1] - h / 2, y1:o.y + c[1] + h / 2};
+      let s = 0;
+      for (const k of blocks){
+        if (k.o === o && !k.note) continue;
+        if (k.cr){ const d = k.cr - Math.hypot(k.cx - Math.min(b.x1, Math.max(b.x0, k.cx)), k.cy - Math.min(b.y1, Math.max(b.y0, k.cy))); if (d > 0) s += d * d; }
+        else s += overlap(b, k);
+      }
+      /* aus dem Bild ragen zählt auch */
+      s += (Math.max(0, -b.x0) + Math.max(0, b.x1 - Wpx)) * h + (Math.max(0, -b.y0) + Math.max(0, b.y1 - Hpx)) * w;
+      return [s, b];
+    };
+    let side = u.side, best = side >= 0 ? cost(cand[side]) : null;
+    if (!best || best[0] > 1) cand.forEach((c, i) => { const k = cost(c); if (!best || k[0] < best[0] - 1){ best = k; side = i; } });
+    u.side = side;
+    blocks.push({o, note:true, ...best[1]});
+    const s = o.perPx / o.m.r;
+    u.note.position.set(cand[side][0] * s, -cand[side][1] * s, 0);
+    u.note.scale.set(w * s, h * s, 1); u.note.visible = true;
+  });
+}
 function ringMaterial(color){ return new THREE.MeshBasicMaterial({color, side:THREE.DoubleSide, depthTest:false, transparent:true}); }
 /* Startkreis: ein abstehendes Rechteck = Start mit einer Hand, zwei = mit beiden Händen */
 function buildMesh(m){
@@ -470,7 +589,7 @@ function buildMesh(m){
     g.add(tl, t); tabs.push([t, tl]);
   }
   const label = new THREE.Mesh(topLabelGeo, topLabelMat); label.position.set(0, 1.55, 0); label.renderOrder = 11; g.add(label);
-  g.userData = {ring, halo, tabs, label};
+  g.userData = {ring, halo, tabs, label, note:null, noteText:'', side:-1};
   placeMesh(g, m);
   return g;
 }
@@ -480,6 +599,7 @@ function placeMesh(g, m){
   const u = g.userData;
   u.ring.material.color.set(css(TYPES[m.t]));
   u.label.visible = m.t === 'top';
+  setNote(g, m.c);
   const n = m.t === 'start' ? (m.h || 1) : 0;
   u.tabs.forEach(([t, tl], i) => {
     const show = i < n, x = n === 2 ? (i ? 0.38 : -0.38) : 0;
@@ -488,6 +608,7 @@ function placeMesh(g, m){
   });
 }
 function rebuild(){
+  meshes.forEach(g => setNote(g, ''));
   markerGroup.clear(); meshes = marks.map(buildMesh); meshes.forEach(g => markerGroup.add(g));
   select(-1);
 }
@@ -495,12 +616,26 @@ function select(i){
   selected = i; justCreated = false;
   meshes.forEach((g, k) => g.userData.halo.visible = k === i);
   $('del').disabled = i < 0;
+  showMarkText();
   if (i >= 0){
     setType(marks[i].t, false);
     const cm = Math.round(marks[i].r * 100); $('radius').value = cm; $('radius-val').textContent = cm + ' cm';
   }
   showHands();
 }
+/* Textfeld für den ausgewählten Kreis */
+function showMarkText(){
+  const on = mode === 'edit' && selected >= 0 && !!marks[selected] && $('details').hidden;
+  $('mtext').hidden = !on;
+  if (on) $('m-text').value = marks[selected].c || ''; else $('m-text').blur();
+}
+$('m-text').addEventListener('input', () => {
+  const m = marks[selected]; if (!m) return;
+  const t = $('m-text').value.replace(/\s+/g, ' ').trim();
+  if (t) m.c = t; else delete m.c;
+  setNote(meshes[selected], m.c); justCreated = false; save();
+});
+$('m-text').addEventListener('keydown', e => { if (e.key === 'Enter') $('m-text').blur(); });
 let hands = 1;
 function showHands(){
   const sel = selected >= 0 ? marks[selected] : null;
@@ -587,17 +722,49 @@ canvas.addEventListener('pointermove', e => {
   }
   if (grab >= 0 && down){
     if (!dragging && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6){ dragging = true; select(grab); }
-    if (dragging){
-      const hit = hitWall(e.clientX, e.clientY); if (!hit) return;
-      const n = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : ray.ray.direction.clone().negate();
-      if (n.dot(ray.ray.direction) > 0) n.negate();
-      const m = marks[grab];
-      m.p = hit.point.clone().addScaledVector(n, 0.01).toArray().map(v => +v.toFixed(4));
-      m.n = n.toArray().map(v => +v.toFixed(3));
-      placeMesh(meshes[grab], m);
-    }
+    if (dragging) moveMark(grab, e.clientX, e.clientY);
   }
 });
+/* Kreis i auf die Wandstelle unter dem Bildschirmpunkt setzen */
+function moveMark(i, x, y){
+  const hit = hitWall(x, y); if (!hit) return;
+  const n = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : ray.ray.direction.clone().negate();
+  if (n.dot(ray.ray.direction) > 0) n.negate();
+  const m = marks[i];
+  m.p = hit.point.clone().addScaledVector(n, 0.01).toArray().map(v => +v.toFixed(4));
+  m.n = n.toArray().map(v => +v.toFixed(3));
+  placeMesh(meshes[i], m);
+}
+/* Anfasser: hängt unter dem ausgewählten Kreis (am unteren Bildrand darüber). Wer ihn zieht, verschiebt den Kreis
+   mit festem Abstand zum Finger, so bleibt die Zielstelle sichtbar. */
+const grip = $('grip');
+let gripDrag = null, gripUp = false;
+function markPx(m){
+  const r = canvas.getBoundingClientRect(), p = new THREE.Vector3().fromArray(m.p), q = p.clone().project(camera);
+  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion), e = p.addScaledVector(right, m.r).project(camera);
+  return {x:(q.x + 1) / 2 * r.width, y:(1 - q.y) / 2 * r.height, z:q.z, rad:Math.abs(e.x - q.x) / 2 * r.width, rect:r};
+}
+function placeGrip(){
+  const m = mode === 'edit' && selected >= 0 && $('details').hidden ? marks[selected] : null;
+  const c = m && markPx(m);
+  if (!c || c.z > 1){ grip.hidden = true; return; }
+  const off = Math.max(c.rad, 18) + (m.t === 'start' ? Math.max(c.rad * 0.6, 8) : 0) + 14 + 24;
+  if (!gripDrag) gripUp = c.y + off + 24 > c.rect.height;
+  grip.hidden = false; grip.classList.toggle('up', gripUp);
+  grip.style.transform = `translate(${c.x.toFixed(1)}px,${(c.y + (gripUp ? -off : off)).toFixed(1)}px)`;
+}
+grip.addEventListener('pointerdown', e => {
+  if (selected < 0) return;
+  e.preventDefault(); grip.setPointerCapture(e.pointerId);
+  const c = markPx(marks[selected]);
+  gripDrag = {id:e.pointerId, dx:e.clientX - (c.rect.left + c.x), dy:e.clientY - (c.rect.top + c.y)};
+});
+grip.addEventListener('pointermove', e => {
+  if (!gripDrag || e.pointerId !== gripDrag.id || selected < 0) return;
+  moveMark(selected, e.clientX - gripDrag.dx, e.clientY - gripDrag.dy);
+});
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach(n => grip.addEventListener(n, () => { if (gripDrag){ gripDrag = null; justCreated = false; save(); } }));
+grip.addEventListener('contextmenu', e => e.preventDefault());
 const lift = e => { pointers.delete(e.pointerId); if (pointers.size < 2) pinchDist = 0; if (!pointers.size) controls.enabled = true; };
 canvas.addEventListener('pointercancel', e => { lift(e); down = null; dragging = false; grab = -1; });
 let lastTap = null, tapHint = 0;
@@ -942,7 +1109,7 @@ async function api(path, opts = {}){
   return t ? JSON.parse(t) : null;
 }
 const fromRow = r => ({id:r.id, name:r.name, grade:r.grade, note:r.note || '', by:r.by_name, created:r.created, model:r.model,
-  marks:r.marks || [], cam:r.cam, draft:r.draft, deleted_at:r.deleted_at, deleted_by:r.deleted_by, sends:[]});
+  marks:r.marks || [], cam:r.cam, draft:r.draft, deleted_at:r.deleted_at, deleted_by:r.deleted_by, sends:[], ratings:{}});
 const toRow = r => ({id:r.id, name:r.name, grade:r.grade, note:r.note || '', by_name:r.by || '', created:r.created, updated:new Date().toISOString(),
   model:r.model, marks:r.marks, cam:r.cam || null, draft:!!r.draft, deleted_at:r.deleted_at || null, deleted_by:r.deleted_by || null});
 let loading = false;
@@ -950,31 +1117,34 @@ let offlineAt = null;
 /* Kommentare pro Route, für alle in der Gruppe sichtbar */
 let comments = {};
 const COM_SELECT = 'comments?select=id,route_id,person,body,created&order=created.asc';
-function applyData(rows, sends, mods, coms){
+function applyData(rows, sends, mods, coms, rats){
   routes = rows.map(fromRow);
   comments = {};
   (coms || []).forEach(c => (comments[c.route_id] = comments[c.route_id] || []).push(c));
   const byId = Object.fromEntries(routes.map(r => [r.id, r]));
   sends.forEach(s => byId[s.route_id] && byId[s.route_id].sends.push(s.person));
+  /* Sternebewertung: eine pro Person und Route */
+  (rats || []).forEach(x => { if (byId[x.route_id]) byId[x.route_id].ratings[x.person] = x.stars; });
   if (mods.length){ models = Object.fromEntries(mods.map(m => [m.version, m.file])); newestModel = mods[mods.length - 1].version; }
 }
 async function loadAll(){
   loading = true;
   try{
-    const [rows, sends, mods, coms] = await Promise.all([
+    const [rows, sends, mods, coms, rats] = await Promise.all([
       api('routes?select=*&order=created.desc'),
       api('sends?select=route_id,person'),
       api('models?select=version,file,created&order=created.asc'),
       /* Kommentare: fehlt die Tabelle noch, läuft der Rest trotzdem */
-      api(COM_SELECT).catch(() => [])
+      api(COM_SELECT).catch(() => []),
+      api('ratings?select=route_id,person,stars').catch(() => [])
     ]);
-    applyData(rows, sends, mods, coms); offlineAt = null;
-    try{ localStorage.setItem('dml-cache', JSON.stringify({rows, sends, mods, coms, at:new Date().toISOString()})); }catch(e){}
+    applyData(rows, sends, mods, coms, rats); offlineAt = null;
+    try{ localStorage.setItem('dml-cache', JSON.stringify({rows, sends, mods, coms, rats, at:new Date().toISOString()})); }catch(e){}
     return true;
   }catch(e){
     /* ohne Netz: letzter Stand auf dem Handy */
     let c = null; try{ c = JSON.parse(localStorage.getItem('dml-cache') || 'null'); }catch(e2){}
-    if (c){ applyData(c.rows, c.sends, c.mods, c.coms); offlineAt = c.at; flash('Kein Netz: Du siehst den Stand vom ' + new Date(c.at).toLocaleString('de-DE', {dateStyle:'short', timeStyle:'short'}) + '.'); }
+    if (c){ applyData(c.rows, c.sends, c.mods, c.coms, c.rats); offlineAt = c.at; flash('Kein Netz: Du siehst den Stand vom ' + new Date(c.at).toLocaleString('de-DE', {dateStyle:'short', timeStyle:'short'}) + '.'); }
     else flash('Keine Verbindung zum Server. Prüfe dein Internet und tippe auf „Aktualisieren“.');
     return false;
   }finally{ loading = false; }
@@ -985,8 +1155,28 @@ async function saveRoute(r){
 function flash(text){ note(text); setTimeout(() => note(''), 2600); }
 const esc = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
 
+/* Zurück-Taste (Android) und Wischgeste: Außerhalb der Liste liegt ein eigener Eintrag im Browser-Verlauf.
+   „Zurück“ verbraucht ihn und führt einen Schritt zurück (Route -> Liste), erst auf der Liste schließt sich die App. */
+const inApp = () => !!(history.state && history.state.dml);
+function pushNav(){ if (!inApp()) history.pushState({dml:1}, ''); }
+let backArmed = 0, ownBack = 0;
+addEventListener('popstate', () => {
+  /* von der App selbst ausgelöst (z. B. Knopf „Liste“): nur den Verlauf angleichen */
+  if (ownBack > 0){ ownBack--; if (mode === 'view' || mode === 'edit') pushNav(); return; }
+  if (inApp() || mode === 'list' || mode === 'login') return;
+  if (mode === 'view'){
+    if (!$('comments').hidden){ showComments(false); return pushNav(); }
+    return showList();
+  }
+  /* Bearbeiten: von „Route speichern“ zurück zur Wand; ungespeicherte Kreise erst nach zweitem Zurück verwerfen */
+  if (!$('details').hidden){ $('d-back').click(); return pushNav(); }
+  if (dirty && Date.now() - backArmed > 3000){ backArmed = Date.now(); flash('Nicht gespeichert. Noch einmal „Zurück“ verwirft die Änderungen.'); return pushNav(); }
+  backArmed = 0; armCancel(false); dirty = false;
+  route ? openRoute(route.id) : showList();
+});
 function setMode(m){
   mode = m;
+  if (m === 'view' || m === 'edit') pushNav(); else if (inApp() && !ownBack){ ownBack++; history.back(); }
   document.body.classList.toggle('view', m === 'view');
   $('routes').hidden = m === 'list' || m === 'login';
   $('center').textContent = m === 'view' ? 'Start' : 'Mitte';
@@ -1023,7 +1213,7 @@ $('login-go').onclick = async () => {
   $('login-go').disabled = false;
   /* Namen absichern: vergebener Name nur nach Rückfrage; bei neuem Namen ziehen die eigenen Haken mit */
   const old = me, known = new Set();
-  routes.forEach(r => { if (r.by) known.add(r.by); (r.sends || []).forEach(p => known.add(p)); });
+  routes.forEach(r => { if (r.by) known.add(r.by); (r.sends || []).forEach(p => known.add(p)); Object.keys(r.ratings || {}).forEach(p => known.add(p)); });
   Object.values(comments).flat().forEach(c => known.add(c.person));
   const same = [...known].find(k => k.toLowerCase() === name.toLowerCase());
   let finalName = name;
@@ -1050,6 +1240,13 @@ async function moveName(from, to){
     }
     if (mine.length) flash(`${mine.length} Haken auf „${to}“ übertragen.`);
   }catch(e){ flash('Haken konnten nicht übertragen werden. Keine Verbindung zum Server.'); }
+  /* eigene Bewertungen ziehen mit um */
+  if (routes.some(r => r.ratings && from in r.ratings)){
+    try{
+      await api(`ratings?person=eq.${encodeURIComponent(from)}`, {method:'PATCH', headers:{Prefer:'return=minimal'}, body:JSON.stringify({person:to})});
+      routes.forEach(r => { if (r.ratings && from in r.ratings){ r.ratings[to] = r.ratings[from]; delete r.ratings[from]; } });
+    }catch(e){}
+  }
   /* eigene Kommentare ziehen mit um */
   if (Object.values(comments).flat().some(c => c.person === from)){
     try{
@@ -1068,11 +1265,43 @@ try{ JSON.parse(localStorage.getItem('dml-favs') || '[]').forEach(id => favs.add
 function keepMine(){ try{ localStorage.setItem('dml-favs', JSON.stringify([...favs])); }catch(e){ flash('Speichern auf dem Handy nicht möglich.'); } }
 function showMine(){
   const on = favs.has(route.id);
-  $('fav').setAttribute('aria-pressed', String(on)); $('fav').textContent = on ? '★' : '☆';
+  $('fav').setAttribute('aria-pressed', String(on)); $('fav').textContent = on ? '♥' : '♡';
   $('fav').hidden = $('note-btn').hidden = !!route.deleted_at;
   $('c-text').value = '';
   showComments(false);
+  showRating();
 }
+/* Sternebewertung: jede Person eine Bewertung pro Route, änderbar; derselbe Stern noch einmal nimmt sie zurück */
+const komma = v => v.toFixed(1).replace('.', ',');
+function ratingOf(r){
+  const v = Object.values(r.ratings || {});
+  return v.length ? {n:v.length, avg:v.reduce((a, b) => a + b, 0) / v.length} : null;
+}
+function showRating(){
+  $('rate').hidden = !!route.draft || !!route.deleted_at;
+  const mine = (route.ratings || {})[me] || 0, all = ratingOf(route);
+  $('rate-stars').querySelectorAll('button').forEach(b => {
+    const on = +b.dataset.star <= mine;
+    b.classList.toggle('on', on); b.textContent = on ? '★' : '☆'; b.setAttribute('aria-pressed', String(+b.dataset.star === mine));
+  });
+  $('rate-avg').textContent = all ? `Ø ${komma(all.avg)} · ${all.n} ${all.n === 1 ? 'Bewertung' : 'Bewertungen'}` : 'Noch nicht bewertet';
+}
+$('rate-stars').querySelectorAll('button').forEach(b => b.onclick = async () => {
+  const r = route; if (!r || !me) return;
+  r.ratings = r.ratings || {};
+  const before = r.ratings[me], n = +b.dataset.star, off = before === n;
+  if (off) delete r.ratings[me]; else r.ratings[me] = n;
+  showRating();
+  try{
+    if (off) await api(`ratings?route_id=eq.${encodeURIComponent(r.id)}&person=eq.${encodeURIComponent(me)}`, {method:'DELETE'});
+    else await api('ratings?on_conflict=route_id,person', {method:'POST', headers:{Prefer:'resolution=merge-duplicates,return=minimal'},
+      body:JSON.stringify({route_id:r.id, person:me, stars:n, updated:new Date().toISOString()})});
+  }catch(e){
+    if (before) r.ratings[me] = before; else delete r.ratings[me];
+    if (route === r) showRating();
+    flash('Bewertung nicht gespeichert. Keine Verbindung zum Server.');
+  }
+});
 $('fav').onclick = () => {
   if (!route) return;
   if (favs.has(route.id)) favs.delete(route.id); else favs.add(route.id);
@@ -1152,6 +1381,8 @@ const SORTS = {
   new:(a, b) => (b.created || '').localeCompare(a.created || ''),
   old:(a, b) => (a.created || '').localeCompare(b.created || ''),
   name:byName,
+  /* beste Bewertung zuerst, bei Gleichstand mehr Stimmen, Unbewertete ans Ende */
+  stars:(a, b) => { const x = ratingOf(a), y = ratingOf(b); return (y ? y.avg : 0) - (x ? x.avg : 0) || (y ? y.n : 0) - (x ? x.n : 0) || byName(a, b); },
 };
 /* Auswahl "Von": alle, die eine sichtbare Route angelegt haben */
 function fillBy(live){
@@ -1188,9 +1419,11 @@ function showList(){
     const mine = !r.draft && !r.deleted_at && me && (r.sends || []).includes(me);
     const extra = r.deleted_at ? `<span class="who">gelöscht von ${esc(r.deleted_by || '–')}</span>`
       : (!r.draft && isNew(r) ? '<span class="new">Neu</span>' : '');
+    const rt = r.draft || r.deleted_at ? null : ratingOf(r);
+    const stars = rt ? `<span class="rating" aria-label="Bewertung ${komma(rt.avg)} von 5, ${rt.n} Stimmen"><i>★</i> ${komma(rt.avg)} (${rt.n})</span>` : '';
     return `<li class="${mine ? 'done' : ''}"><button type="button" data-id="${r.id}">
-      <span class="grade">${esc(r.grade)}</span><span>${favs.has(r.id) ? '<span class="star" aria-label="Favorit">★</span> ' : ''}${esc(r.name)}${(comments[r.id] || []).length ? ` <span class="who" aria-label="${comments[r.id].length} Kommentare">💬 ${comments[r.id].length}</span>` : ''}</span>${extra}
-      <span class="who">von ${esc(r.by || '–')}</span>
+      <span class="grade">${esc(r.grade)}</span><span>${favs.has(r.id) ? '<span class="heart" aria-label="Favorit">♥</span> ' : ''}${esc(r.name)}${(comments[r.id] || []).length ? ` <span class="who" aria-label="${comments[r.id].length} Kommentare">💬 ${comments[r.id].length}</span>` : ''}</span>${extra}
+      <span class="who">von ${esc(r.by || '–')}</span>${stars}
       <span class="meta sends">${mine ? '✓ geschafft' : ''}</span></button></li>`;
   }).join('');
   $('list-empty').hidden = shown.length > 0;
@@ -1244,9 +1477,8 @@ function openRoute(id){
   $('rb-draft').hidden = !route.draft;
   showSends();
   showMine();
-  armRemove(false);
   const del = !!route.deleted_at;
-  $('edit-btn').hidden = $('remove').hidden = $('share').hidden = del; $('restore').hidden = !del;
+  $('edit-btn').hidden = $('share').hidden = del; $('restore').hidden = !del;
   $('share-row').hidden = true; $('share').setAttribute('aria-expanded', 'false');
   setMode('view');
   ensureModel(route.model).then(() => { if (route) applyCam(route); });
@@ -1273,6 +1505,7 @@ function warn(text){ $('d-warn').textContent = text; $('d-warn').hidden = !text;
 function showDetails(){
   select(-1); warn(''); $('save').textContent = 'Speichern';
   $('d-cancel').textContent = 'Abbrechen';
+  $('remove-row').hidden = !route; armRemove(false);
   $('details').hidden = false; $('edit').hidden = true;
 }
 $('next').onclick = () => {
@@ -1296,7 +1529,7 @@ async function store(draft){
   const data = {name, grade:$('r-grade').value, note:$('r-note').value.trim(), marks:marks.map(m => ({...m})), cam:editCam || camState(), draft};
   if (route) Object.assign(route, data);
   const r = route ? {...route, ...data}
-    : {id:Date.now().toString(36) + Math.random().toString(36).slice(2, 6), model:loadedModel || newestModel, created:new Date().toISOString(), by:me, sends:[], ...data};
+    : {id:Date.now().toString(36) + Math.random().toString(36).slice(2, 6), model:loadedModel || newestModel, created:new Date().toISOString(), by:me, sends:[], ratings:{}, ...data};
   $('save').disabled = $('d-draft').disabled = true;
   try{ await saveRoute(r); }
   catch(e){ $('save').disabled = $('d-draft').disabled = false; return warn('Speichern fehlgeschlagen. Keine Verbindung zum Server. Deine Kreise sind noch da, versuch es gleich noch einmal.'); }
@@ -1320,7 +1553,7 @@ $('save').onclick = () => {
 /* Abbrechen und Löschen brauchen einen zweiten Tipp, wenn etwas verloren ginge */
 let cancelTimer = 0, removeTimer = 0;
 function armCancel(on){ clearTimeout(cancelTimer); $('cancel').textContent = on ? 'Verwerfen?' : 'Abbrechen'; if (on) cancelTimer = setTimeout(() => armCancel(false), 3000); }
-function armRemove(on){ clearTimeout(removeTimer); $('remove').textContent = on ? 'Wirklich löschen?' : 'Route löschen'; if (on) removeTimer = setTimeout(() => armRemove(false), 3000); }
+function armRemove(on){ clearTimeout(removeTimer); $('remove').textContent = on ? 'Wirklich löschen?' : '🗑 Route löschen'; if (on) removeTimer = setTimeout(() => armRemove(false), 3000); }
 $('cancel').onclick = () => {
   if (dirty && $('cancel').textContent === 'Abbrechen') return armCancel(true);
   armCancel(false); dirty = false;
@@ -1334,8 +1567,9 @@ async function setDeleted(r, on){
   catch(e){ Object.assign(r, before); flash('Nicht gespeichert. Keine Verbindung zum Server.'); return false; }
 }
 $('remove').onclick = async () => {
-  if ($('remove').textContent === 'Route löschen') return armRemove(true);
-  if (await setDeleted(route, true)){ route = null; showList(); flash('Route liegt im Papierkorb (🗑) und lässt sich dort wiederherstellen.'); }
+  if (!route) return;
+  if ($('remove').textContent !== 'Wirklich löschen?') return armRemove(true);
+  if (await setDeleted(route, true)){ route = null; dirty = false; showList(); flash('Route liegt im Papierkorb (🗑) und lässt sich dort wiederherstellen.'); }
 };
 $('restore').onclick = async () => {
   if (await setDeleted(route, false)){ listTab = route.draft ? 'drafts' : 'routes'; openRoute(route.id); }
@@ -1497,6 +1731,7 @@ renderer.setAnimationLoop(() => {
   controls.update();
   /* Kreise zeigen immer zur Kamera und bleiben dadurch rund */
   for (const g of meshes) g.quaternion.copy(camera.quaternion);
+  placeGrip(); layoutNotes();
   updateHighlight();
   renderer.render(scene, camera);
   frames++; const n = performance.now();
