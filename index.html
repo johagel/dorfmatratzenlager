@@ -110,6 +110,16 @@ textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 #rate-stars button{border:0;background:none;min-height:40px;min-width:36px;padding:0;justify-content:center;font-size:26px;line-height:1;color:var(--muted)}
 #rate-stars button.on{color:#e0a400}
 #rate-stars button[aria-pressed="true"]{box-shadow:none}
+#gpop{position:fixed;inset:0;z-index:10;background:rgb(0 0 0 / .45);display:flex;align-items:center;justify-content:center;padding:16px}
+#gpop[hidden]{display:none}
+.gp-card{background:var(--panel);border-radius:14px;padding:18px 16px 16px;width:100%;max-width:380px;box-shadow:0 8px 30px rgb(0 0 0 / .35);display:flex;flex-direction:column;gap:12px}
+.gp-card h2{margin:0;font-size:22px}
+.gp-card p{margin:0}
+#gp-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+#gp-grid button{justify-content:center;padding:0;min-height:44px;font-family:var(--mono);font-size:16px}
+#gp-grid button.now{border:2px solid var(--accent)}
+#gp-grid button[aria-pressed="true"]{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+#gp-none{justify-content:center}
 #vote-box{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
 #vote{width:auto;min-width:0;min-height:36px;padding:2px 6px;font-size:15px}
 #vote-box span{font-size:14px}
@@ -313,6 +323,15 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
     <button id="next" class="primary" type="button">Weiter</button>
   </div>
 </footer>
+
+<div id="gpop" hidden role="dialog" aria-modal="true" aria-labelledby="gp-title">
+  <div class="gp-card">
+    <h2 id="gp-title">Geschafft! 🎉</h2>
+    <p id="gp-q" class="muted"></p>
+    <div id="gp-grid" role="group" aria-label="Grad wählen"></div>
+    <button id="gp-none" type="button">Keinen Grad vorschlagen</button>
+  </div>
+</div>
 
 <footer id="view" hidden>
   <p id="v-note" class="note" hidden></p>
@@ -1197,6 +1216,7 @@ addEventListener('popstate', () => {
   if (!$('stats').hidden) return closeStats(true);
   if (mode === 'list' || mode === 'login') return;
   if (mode === 'view'){
+    if (!$('gpop').hidden){ closeGrade(); return pushNav(); }
     if (!$('comments').hidden){ showComments(false); return pushNav(); }
     return showList();
   }
@@ -1220,6 +1240,7 @@ function setMode(m){
   $('routebar').hidden = m !== 'view';
   $('details').hidden = true;
   if (m !== 'list') $('stats').hidden = true;
+  if (m !== 'view') $('gpop').hidden = true;
   if (m === 'list' || m === 'login'){ marks = []; rebuild(); }
 }
 /* Anmelden: Gruppen-Code und Name einmal eingeben, bleiben im Browser */
@@ -1579,15 +1600,34 @@ function showSends(){
   $('v-sends').textContent = (who.length ? `✓ Geschafft von ${who.join(', ')}` : 'Noch von niemandem geschafft.')
     + (n > 1 ? ` · Grad aus ${n} Vorschlägen` : '');
 }
+/* Fenster nach „Geschafft“: Grad vorschlagen oder bewusst keinen */
+function askGrade(r){
+  const now = gradeOf(r), mine = (r.votes || {})[me] || '', n = gi(now) < 0 ? 5 : +now.replace(/[-+]/, '');
+  const lo = Math.max(1, Math.min(3, n - 1)), hi = Math.min(12, Math.max(10, n + 1));
+  $('gp-q').textContent = `Wie schwer fandest du „${r.name}“? Angezeigt wird der Mittelwert aller Vorschläge${gi(now) < 0 ? ', bisher gibt es noch keinen' : ', bisher ' + now}.`;
+  $('gp-grid').innerHTML = GRADES.filter(g => { const k = +g.replace(/[-+]/, ''); return k >= lo && k <= hi; })
+    .map(g => `<button type="button" data-g="${g}" class="${g === now ? 'now' : ''}" aria-pressed="${g === mine}">${g}</button>`).join('');
+  $('gp-grid').querySelectorAll('button').forEach(b => b.onclick = () => {
+    closeGrade();
+    if (route !== r || b.dataset.g === mine) return;
+    $('vote').value = b.dataset.g; $('vote').onchange();
+  });
+  $('gpop').hidden = false;
+}
+function closeGrade(){ $('gpop').hidden = true; }
+$('gp-none').onclick = closeGrade;
+$('gpop').onclick = e => { if (e.target === $('gpop')) closeGrade(); };
 $('sent').onclick = async () => {
   const r = route, sends = r.sends, had = sends.includes(me);
   if (had) sends.splice(sends.indexOf(me), 1); else sends.push(me);
   showVote();
+  if (!had && !r.draft) askGrade(r);
   try{
     if (had) await api(`sends?route_id=eq.${encodeURIComponent(r.id)}&person=eq.${encodeURIComponent(me)}`, {method:'DELETE'});
     else await api('sends', {method:'POST', headers:{Prefer:'resolution=ignore-duplicates,return=minimal'}, body:JSON.stringify({route_id:r.id, person:me})});
   }catch(e){
     if (had) sends.push(me); else sends.splice(sends.indexOf(me), 1);
+    closeGrade();
     if (route === r) showVote();
     flash('Haken nicht gespeichert. Keine Verbindung zum Server.');
   }
