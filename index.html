@@ -119,7 +119,11 @@ textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 #gp-grid button{justify-content:center;padding:0;min-height:44px;font-family:var(--mono);font-size:16px}
 #gp-grid button.now{border:2px solid var(--accent)}
 #gp-grid button[aria-pressed="true"]{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
-#gp-none{justify-content:center}
+#gp-none,#gp-skip{justify-content:center}
+#gp-stars{display:flex;justify-content:center;gap:4px}
+#gp-stars[hidden]{display:none}
+#gp-stars button{border:0;background:none;min-height:56px;min-width:52px;padding:0;justify-content:center;font-size:42px;line-height:1;color:var(--muted)}
+#gp-stars button.on{color:#e0a400}
 #vote-box{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
 #vote{width:auto;min-width:0;min-height:36px;padding:2px 6px;font-size:15px}
 #vote-box span{font-size:14px}
@@ -330,6 +334,10 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
     <p id="gp-q" class="muted"></p>
     <div id="gp-grid" role="group" aria-label="Grad wählen"></div>
     <button id="gp-none" type="button">Keinen Grad vorschlagen</button>
+    <div id="gp-stars" role="group" aria-label="Sterne wählen" hidden>
+      <button type="button" data-star="1" aria-label="1 Stern">☆</button><button type="button" data-star="2" aria-label="2 Sterne">☆</button><button type="button" data-star="3" aria-label="3 Sterne">☆</button><button type="button" data-star="4" aria-label="4 Sterne">☆</button><button type="button" data-star="5" aria-label="5 Sterne">☆</button>
+    </div>
+    <button id="gp-skip" type="button" hidden>Nicht bewerten</button>
   </div>
 </div>
 
@@ -1601,21 +1609,37 @@ function showSends(){
     + (n > 1 ? ` · Grad aus ${n} Vorschlägen` : '');
 }
 /* Fenster nach „Geschafft“: Grad vorschlagen oder bewusst keinen */
+/* Schritt 1: Grad, Schritt 2: Sterne; beide lassen sich überspringen */
 function askGrade(r){
-  const now = gradeOf(r), mine = (r.votes || {})[me] || '', n = gi(now) < 0 ? 5 : +now.replace(/[-+]/, '');
-  const lo = Math.max(1, Math.min(3, n - 1)), hi = Math.min(12, Math.max(10, n + 1));
+  const now = gradeOf(r), mine = (r.votes || {})[me] || '';
+  $('gp-title').textContent = 'Geschafft! 🎉';
+  $('gp-grid').hidden = $('gp-none').hidden = false; $('gp-stars').hidden = $('gp-skip').hidden = true;
   $('gp-q').textContent = `Wie schwer fandest du „${r.name}“? Angezeigt wird der Mittelwert aller Vorschläge${gi(now) < 0 ? ', bisher gibt es noch keinen' : ', bisher ' + now}.`;
-  $('gp-grid').innerHTML = GRADES.filter(g => { const k = +g.replace(/[-+]/, ''); return k >= lo && k <= hi; })
-    .map(g => `<button type="button" data-g="${g}" class="${g === now ? 'now' : ''}" aria-pressed="${g === mine}">${g}</button>`).join('');
+  $('gp-grid').innerHTML = GRADES.map(g => `<button type="button" data-g="${g}" class="${g === now ? 'now' : ''}" aria-pressed="${g === mine}">${g}</button>`).join('');
   $('gp-grid').querySelectorAll('button').forEach(b => b.onclick = () => {
-    closeGrade();
-    if (route !== r || b.dataset.g === mine) return;
-    $('vote').value = b.dataset.g; $('vote').onchange();
+    if (route === r && b.dataset.g !== mine){ $('vote').value = b.dataset.g; $('vote').onchange(); }
+    askStars(r);
   });
+  $('gp-none').onclick = () => askStars(r);
   $('gpop').hidden = false;
 }
+function askStars(r){
+  if (route !== r || r.draft){ closeGrade(); return; }
+  const mine = (r.ratings || {})[me] || 0;
+  $('gp-title').textContent = 'Wie gefällt dir die Route?';
+  $('gp-q').textContent = `Gib „${r.name}“ 1 bis 5 Sterne.`;
+  $('gp-grid').hidden = $('gp-none').hidden = true; $('gp-stars').hidden = $('gp-skip').hidden = false;
+  $('gp-stars').querySelectorAll('button').forEach(b => {
+    const on = +b.dataset.star <= mine; b.classList.toggle('on', on); b.textContent = on ? '★' : '☆';
+    b.onclick = () => {
+      closeGrade();
+      /* gleiche Speicherung wie die Sterne in der Routenansicht; derselbe Stern noch einmal würde zurücknehmen */
+      if (route === r && +b.dataset.star !== mine) $('rate-stars').querySelector(`[data-star="${b.dataset.star}"]`).click();
+    };
+  });
+}
 function closeGrade(){ $('gpop').hidden = true; }
-$('gp-none').onclick = closeGrade;
+$('gp-skip').onclick = closeGrade;
 $('gpop').onclick = e => { if (e.target === $('gpop')) closeGrade(); };
 $('sent').onclick = async () => {
   const r = route, sends = r.sends, had = sends.includes(me);
