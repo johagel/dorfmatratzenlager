@@ -260,12 +260,12 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
     <h2>Route speichern</h2>
     <label for="r-name">Name</label>
     <input id="r-name" type="text" placeholder="z. B. Rosa Riese" maxlength="40" autocomplete="off">
-    <label for="r-grade">Grad (UIAA)</label>
-    <select id="r-grade"></select>
-    <p class="muted" style="margin:0;font-size:13px">Gilt als Vorschlag des Erstellers. Wer die Route geschafft hat, kann eigene Vorschläge machen, angezeigt wird der Mittelwert.</p>
     <label for="r-by">Erstellt von</label>
     <select id="r-by"></select>
     <input id="r-by-new" type="text" maxlength="24" autocomplete="off" placeholder="Name eingeben" hidden>
+    <label for="r-grade">Dein Grad-Vorschlag (UIAA)</label>
+    <select id="r-grade"></select>
+    <p id="r-grade-hint" class="muted" style="margin:0;font-size:13px">Angezeigt wird der Mittelwert aller Vorschläge. Wer die Route geschafft hat oder sie erstellt hat, kann später in der Routenansicht einen eigenen Grad vorschlagen.</p>
     <label for="r-note">Beschreibung <span class="muted">(optional)</span></label>
     <textarea id="r-note" rows="3" maxlength="400" placeholder="z. B. Sitzstart, Kante rechts ist tabu"></textarea>
     <p id="d-warn" class="warn" hidden></p>
@@ -1122,8 +1122,8 @@ function updateHighlight(){
 /* ---------- Routen ---------- */
 const GRADES = [];
 for (let g = 1; g <= 12; g++) for (const s of ['-', '', '+']) GRADES.push(g + s);
-$('r-grade').innerHTML = GRADES.map(g => `<option value="${g}">${g}</option>`).join('');
-$('r-grade').value = '5';
+$('r-grade').innerHTML = '<option value="">– noch offen</option>' + GRADES.map(g => `<option value="${g}">${g}</option>`).join('');
+$('r-grade').value = '';
 
 /* ---------- Server ---------- */
 async function api(path, opts = {}){
@@ -1350,26 +1350,28 @@ $('rate-stars').querySelectorAll('button').forEach(b => b.onclick = async () => 
 });
 /* Grad-Vorschläge: Wer geschafft hat, schlägt einen Grad vor. Der Grad des Erstellers zählt als dessen Vorschlag,
    solange er keinen eigenen abgibt. Angezeigt wird der Mittelwert, gerundet auf die UIAA-Stufen (… 6-, 6, 6+ …). */
-function gradeVotes(r){
+function gradeVotes(r, votes = r.votes){
   const v = {};
-  if (r.by && r.grade) v[r.by] = r.grade;
-  Object.entries(r.votes || {}).forEach(([p, g]) => { if (gi(g) >= 0 && (p === r.by || (r.sends || []).includes(p))) v[p] = g; });
+  Object.entries(votes || {}).forEach(([p, g]) => { if (gi(g) >= 0) v[p] = g; });
+  /* ältere Routen ohne Vorschläge: eingetragener Grad gilt als Vorschlag des Erstellers */
+  if (!Object.keys(v).length && gi(r.grade) >= 0) v[r.by || '–'] = r.grade;
   return v;
 }
-function gradeOf(r){
-  const v = Object.values(gradeVotes(r)).map(gi).filter(i => i >= 0);
-  if (!v.length) return r.grade;
+/* Mittelwert der Vorschläge, gerundet auf die UIAA-Stufen; „?“ solange niemand einen Grad vorgeschlagen hat */
+function gradeOf(r, votes){
+  const v = Object.values(gradeVotes(r, votes)).map(gi);
+  if (!v.length) return '?';
   return GRADES[Math.round(v.reduce((a, b) => a + b, 0) / v.length)];
 }
 function showVote(){
-  const r = route, can = !r.draft && !r.deleted_at && !!me && (r.sends || []).includes(me);
+  const r = route, can = !r.draft && !r.deleted_at && !!me && ((r.sends || []).includes(me) || r.by === me);
   $('vote-box').hidden = !can;
   const mine = (r.votes || {})[me];
   $('vote').innerHTML = `<option value="">–</option>` + GRADES.map(g => `<option value="${g}">${g}</option>`).join('');
   $('vote').value = mine || '';
   const n = Object.keys(gradeVotes(r)).length;
   $('rb-grade').textContent = gradeOf(r);
-  $('rb-grade').title = n > 1 ? `Mittelwert aus ${n} Vorschlägen` : 'Grad vom Ersteller';
+  $('rb-grade').title = n > 1 ? `Mittelwert aus ${n} Vorschlägen` : n ? 'ein Vorschlag' : 'noch kein Grad vorgeschlagen';
   showSends();
 }
 $('vote').onchange = async () => {
@@ -1443,6 +1445,8 @@ async function removeComment(id){
 }
 /* Filter: Grad von–bis und nur offene; bleibt im Browser gespeichert */
 const gi = g => GRADES.indexOf(g);
+/* für Sortierung: Routen ohne Grad ans Ende */
+const gs = r => { const i = gi(gradeOf(r)); return i < 0 ? 99 : i; };
 let filter = {from:'1-', to:'12+', open:false, fav:false, by:'', sort:'new'};
 try{ Object.assign(filter, JSON.parse(localStorage.getItem('boulder-filter') || '{}')); }catch(e){}
 ['f-from', 'f-to'].forEach(id => $(id).innerHTML = GRADES.map(g => `<option value="${g}">${g}</option>`).join(''));
@@ -1463,8 +1467,8 @@ const isNew = r => Date.now() - new Date(r.created).getTime() < NEW_DAYS * 864e5
 /* Sortierung der Routenliste; bei Gleichstand nach Name */
 const byName = (a, b) => a.name.localeCompare(b.name, 'de');
 const SORTS = {
-  grade:(a, b) => gi(gradeOf(a)) - gi(gradeOf(b)) || byName(a, b),
-  'grade-desc':(a, b) => gi(gradeOf(b)) - gi(gradeOf(a)) || byName(a, b),
+  grade:(a, b) => gs(a) - gs(b) || byName(a, b),
+  'grade-desc':(a, b) => (gs(b) % 99) - (gs(a) % 99) || byName(a, b),
   new:(a, b) => (b.created || '').localeCompare(a.created || ''),
   old:(a, b) => (a.created || '').localeCompare(b.created || ''),
   name:byName,
@@ -1497,7 +1501,7 @@ function showList(){
     : drafts
     ? live.filter(r => r.draft).sort((a, b) => b.created.localeCompare(a.created))
     : live.filter(r => !r.draft)
-      .filter(r => gi(gradeOf(r)) >= lo && gi(gradeOf(r)) <= hi)
+      .filter(r => { const i = gi(gradeOf(r)); return i < 0 || (i >= lo && i <= hi); })
       .filter(r => !filter.open || !(r.sends || []).includes(me))
       .filter(r => !filter.fav || favs.has(r.id))
       .filter(r => !filter.by || r.by === filter.by)
@@ -1539,6 +1543,7 @@ function showStats(){
   }).join('');
   $('st-hint').hidden = !grades.length;
   $('st-rows').querySelectorAll('button').forEach(b => b.onclick = () => {
+    if (gi(b.dataset.grade) < 0) return;
     $('f-from').value = $('f-to').value = b.dataset.grade;
     $('f-from').dispatchEvent(new Event('change'));
     listTab = 'routes'; closeStats(); showList();
@@ -1607,7 +1612,7 @@ function startEdit(r){
   if (!r) ensureModel(newestModel).then(() => { back = 0; startView(); });
   marks = r ? r.marks.map(m => ({...m})) : [];
   $('r-name').value = r ? r.name : '';
-  $('r-grade').value = r ? r.grade : '5';
+  $('r-grade').value = r ? ((r.votes || {})[me] || '') : '';
   $('r-note').value = r ? (r.note || '') : '';
   fillCreator(r ? (r.by || me) : me);
   setType('start', false); $('tour-ask').hidden = true;
@@ -1666,15 +1671,27 @@ async function store(draft){
   if (!name){ $('r-name').focus(); return warn('Gib der Route einen Namen.'); }
   const by = creator();
   if (!by){ $('r-by-new').focus(); return warn('Gib den Namen des Erstellers ein.'); }
-  const data = {name, by, grade:$('r-grade').value, note:$('r-note').value.trim(), marks:marks.map(m => ({...m})), cam:editCam || camState(), draft};
+  const myVote = $('r-grade').value, oldVotes = route ? (route.votes || {}) : {}, votes = {...oldVotes};
+  if (myVote) votes[me] = myVote; else delete votes[me];
+  /* routes.grade speichert nur den aktuellen Mittelwert (für Sicherung und ältere Fassungen der App) */
+  const shown = gradeOf({grade:'', by}, votes);
+  const data = {name, by, grade:shown === '?' ? '' : shown, note:$('r-note').value.trim(), marks:marks.map(m => ({...m})), cam:editCam || camState(), draft};
   if (route) Object.assign(route, data);
   const r = route ? {...route, ...data}
     : {id:Date.now().toString(36) + Math.random().toString(36).slice(2, 6), model:loadedModel || newestModel, created:new Date().toISOString(), by:me, sends:[], ratings:{}, ...data};
   $('save').disabled = $('d-draft').disabled = true;
-  try{ await saveRoute(r); }
+  try{
+    await saveRoute(r);
+    if (me && (oldVotes[me] || '') !== myVote){
+      if (myVote) await api('grade_votes?on_conflict=route_id,person', {method:'POST', headers:{Prefer:'resolution=merge-duplicates,return=minimal'},
+        body:JSON.stringify({route_id:r.id, person:me, grade:myVote, updated:new Date().toISOString()})});
+      else if (route) await api(`grade_votes?route_id=eq.${encodeURIComponent(r.id)}&person=eq.${encodeURIComponent(me)}`, {method:'DELETE'});
+    }
+  }
   catch(e){ $('save').disabled = $('d-draft').disabled = false; return warn('Speichern fehlgeschlagen. Keine Verbindung zum Server. Deine Kreise sind noch da, versuch es gleich noch einmal.'); }
   $('save').disabled = $('d-draft').disabled = false;
-  if (route) Object.assign(route, data); else { route = r; routes.unshift(r); }
+  r.votes = votes;
+  if (route) Object.assign(route, data, {votes}); else { route = r; routes.unshift(r); }
   dirty = false;
   listTab = draft ? 'drafts' : 'routes';
   openRoute(route.id);
