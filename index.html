@@ -110,6 +110,9 @@ textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 #rate-stars button{border:0;background:none;min-height:40px;min-width:36px;padding:0;justify-content:center;font-size:26px;line-height:1;color:var(--muted)}
 #rate-stars button.on{color:#e0a400}
 #rate-stars button[aria-pressed="true"]{box-shadow:none}
+#vote-box{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
+#vote{width:auto;min-width:0;min-height:36px;padding:2px 6px;font-size:15px}
+#vote-box span{font-size:14px}
 .rating{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--muted);white-space:nowrap}
 .rating i{font-style:normal;color:#e0a400}
 /* Anfasser unter dem ausgewählten Kreis: verschiebt ihn, ohne dass der Daumen ihn verdeckt */
@@ -259,6 +262,10 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
     <input id="r-name" type="text" placeholder="z. B. Rosa Riese" maxlength="40" autocomplete="off">
     <label for="r-grade">Grad (UIAA)</label>
     <select id="r-grade"></select>
+    <p class="muted" style="margin:0;font-size:13px">Gilt als Vorschlag des Erstellers. Wer die Route geschafft hat, kann eigene Vorschläge machen, angezeigt wird der Mittelwert.</p>
+    <label for="r-by">Erstellt von</label>
+    <select id="r-by"></select>
+    <input id="r-by-new" type="text" maxlength="24" autocomplete="off" placeholder="Name eingeben" hidden>
     <label for="r-note">Beschreibung <span class="muted">(optional)</span></label>
     <textarea id="r-note" rows="3" maxlength="400" placeholder="z. B. Sitzstart, Kante rechts ist tabu"></textarea>
     <p id="d-warn" class="warn" hidden></p>
@@ -323,6 +330,7 @@ input[type=text]:focus-visible,select:focus-visible{outline:2px solid var(--acce
       <button type="button" data-star="1" aria-label="1 Stern">★</button><button type="button" data-star="2" aria-label="2 Sterne">★</button><button type="button" data-star="3" aria-label="3 Sterne">★</button><button type="button" data-star="4" aria-label="4 Sterne">★</button><button type="button" data-star="5" aria-label="5 Sterne">★</button>
     </span>
     <span id="rate-avg" class="muted"></span>
+    <label id="vote-box" hidden title="Dein Grad-Vorschlag"><span>Grad</span><select id="vote" aria-label="Dein Grad-Vorschlag"></select></label>
   </div>
   <div id="share-row" class="row" hidden>
     <button id="edit-btn" type="button">✎ Bearbeiten</button>
@@ -1128,7 +1136,7 @@ async function api(path, opts = {}){
   return t ? JSON.parse(t) : null;
 }
 const fromRow = r => ({id:r.id, name:r.name, grade:r.grade, note:r.note || '', by:r.by_name, created:r.created, model:r.model,
-  marks:r.marks || [], cam:r.cam, draft:r.draft, deleted_at:r.deleted_at, deleted_by:r.deleted_by, sends:[], ratings:{}});
+  marks:r.marks || [], cam:r.cam, draft:r.draft, deleted_at:r.deleted_at, deleted_by:r.deleted_by, sends:[], ratings:{}, votes:{}});
 const toRow = r => ({id:r.id, name:r.name, grade:r.grade, note:r.note || '', by_name:r.by || '', created:r.created, updated:new Date().toISOString(),
   model:r.model, marks:r.marks, cam:r.cam || null, draft:!!r.draft, deleted_at:r.deleted_at || null, deleted_by:r.deleted_by || null});
 let loading = false;
@@ -1136,7 +1144,7 @@ let offlineAt = null;
 /* Kommentare pro Route, für alle in der Gruppe sichtbar */
 let comments = {};
 const COM_SELECT = 'comments?select=id,route_id,person,body,created&order=created.asc';
-function applyData(rows, sends, mods, coms, rats){
+function applyData(rows, sends, mods, coms, rats, votes){
   routes = rows.map(fromRow);
   comments = {};
   (coms || []).forEach(c => (comments[c.route_id] = comments[c.route_id] || []).push(c));
@@ -1144,26 +1152,29 @@ function applyData(rows, sends, mods, coms, rats){
   sends.forEach(s => byId[s.route_id] && byId[s.route_id].sends.push(s.person));
   /* Sternebewertung: eine pro Person und Route */
   (rats || []).forEach(x => { if (byId[x.route_id]) byId[x.route_id].ratings[x.person] = x.stars; });
+  /* Grad-Vorschläge: einer pro Person und Route */
+  (votes || []).forEach(x => { if (byId[x.route_id]) byId[x.route_id].votes[x.person] = x.grade; });
   if (mods.length){ models = Object.fromEntries(mods.map(m => [m.version, m.file])); newestModel = mods[mods.length - 1].version; }
 }
 async function loadAll(){
   loading = true;
   try{
-    const [rows, sends, mods, coms, rats] = await Promise.all([
+    const [rows, sends, mods, coms, rats, votes] = await Promise.all([
       api('routes?select=*&order=created.desc'),
       api('sends?select=route_id,person'),
       api('models?select=version,file,created&order=created.asc'),
       /* Kommentare: fehlt die Tabelle noch, läuft der Rest trotzdem */
       api(COM_SELECT).catch(() => []),
-      api('ratings?select=route_id,person,stars').catch(() => [])
+      api('ratings?select=route_id,person,stars').catch(() => []),
+      api('grade_votes?select=route_id,person,grade').catch(() => [])
     ]);
-    applyData(rows, sends, mods, coms, rats); offlineAt = null;
-    try{ localStorage.setItem('dml-cache', JSON.stringify({rows, sends, mods, coms, rats, at:new Date().toISOString()})); }catch(e){}
+    applyData(rows, sends, mods, coms, rats, votes); offlineAt = null;
+    try{ localStorage.setItem('dml-cache', JSON.stringify({rows, sends, mods, coms, rats, votes, at:new Date().toISOString()})); }catch(e){}
     return true;
   }catch(e){
     /* ohne Netz: letzter Stand auf dem Handy */
     let c = null; try{ c = JSON.parse(localStorage.getItem('dml-cache') || 'null'); }catch(e2){}
-    if (c){ applyData(c.rows, c.sends, c.mods, c.coms, c.rats); offlineAt = c.at; flash('Kein Netz: Du siehst den Stand vom ' + new Date(c.at).toLocaleString('de-DE', {dateStyle:'short', timeStyle:'short'}) + '.'); }
+    if (c){ applyData(c.rows, c.sends, c.mods, c.coms, c.rats, c.votes); offlineAt = c.at; flash('Kein Netz: Du siehst den Stand vom ' + new Date(c.at).toLocaleString('de-DE', {dateStyle:'short', timeStyle:'short'}) + '.'); }
     else flash('Keine Verbindung zum Server. Prüfe dein Internet und tippe auf „Aktualisieren“.');
     return false;
   }finally{ loading = false; }
@@ -1234,9 +1245,7 @@ $('login-go').onclick = async () => {
   await loadAll();
   $('login-go').disabled = false;
   /* Namen absichern: vergebener Name nur nach Rückfrage; bei neuem Namen ziehen die eigenen Haken mit */
-  const old = me, known = new Set();
-  routes.forEach(r => { if (r.by) known.add(r.by); (r.sends || []).forEach(p => known.add(p)); Object.keys(r.ratings || {}).forEach(p => known.add(p)); });
-  Object.values(comments).flat().forEach(c => known.add(c.person));
+  const old = me, known = new Set(knownNames());
   const same = [...known].find(k => k.toLowerCase() === name.toLowerCase());
   let finalName = name;
   if (same && same.toLowerCase() !== old.toLowerCase()){
@@ -1248,6 +1257,13 @@ $('login-go').onclick = async () => {
   try{ localStorage.setItem('dml-code', groupCode); localStorage.setItem('dml-user', me); }catch(e){}
   showList(); openLinked();
 };
+/* alle Namen, die in der Gruppe schon vorkommen */
+function knownNames(){
+  const known = new Set();
+  routes.forEach(r => { if (r.by) known.add(r.by); (r.sends || []).forEach(p => known.add(p)); Object.keys(r.ratings || {}).forEach(p => known.add(p)); Object.keys(r.votes || {}).forEach(p => known.add(p)); });
+  Object.values(comments).flat().forEach(c => known.add(c.person));
+  return [...known].filter(Boolean).sort((a, b) => a.localeCompare(b, 'de'));
+}
 async function moveName(from, to){
   const mine = routes.filter(r => (r.sends || []).includes(from));
   try{
@@ -1267,6 +1283,13 @@ async function moveName(from, to){
     try{
       await api(`ratings?person=eq.${encodeURIComponent(from)}`, {method:'PATCH', headers:{Prefer:'return=minimal'}, body:JSON.stringify({person:to})});
       routes.forEach(r => { if (r.ratings && from in r.ratings){ r.ratings[to] = r.ratings[from]; delete r.ratings[from]; } });
+    }catch(e){}
+  }
+  /* eigene Grad-Vorschläge ziehen mit um */
+  if (routes.some(r => r.votes && from in r.votes)){
+    try{
+      await api(`grade_votes?person=eq.${encodeURIComponent(from)}`, {method:'PATCH', headers:{Prefer:'return=minimal'}, body:JSON.stringify({person:to})});
+      routes.forEach(r => { if (r.votes && from in r.votes){ r.votes[to] = r.votes[from]; delete r.votes[from]; } });
     }catch(e){}
   }
   /* eigene Kommentare ziehen mit um */
@@ -1292,6 +1315,7 @@ function showMine(){
   $('c-text').value = '';
   showComments(false);
   showRating();
+  showVote();
 }
 /* Sternebewertung: jede Person eine Bewertung pro Route, änderbar; derselbe Stern noch einmal nimmt sie zurück */
 const komma = v => v.toFixed(1).replace('.', ',');
@@ -1306,7 +1330,7 @@ function showRating(){
     const on = +b.dataset.star <= mine;
     b.classList.toggle('on', on); b.textContent = on ? '★' : '☆'; b.setAttribute('aria-pressed', String(+b.dataset.star === mine));
   });
-  $('rate-avg').textContent = all ? `Ø ${komma(all.avg)} (${all.n})` : 'noch nicht bewertet';
+  $('rate-avg').textContent = all ? `Ø ${komma(all.avg)} (${all.n})` : 'unbewertet';
 }
 $('rate-stars').querySelectorAll('button').forEach(b => b.onclick = async () => {
   const r = route; if (!r || !me) return;
@@ -1324,6 +1348,47 @@ $('rate-stars').querySelectorAll('button').forEach(b => b.onclick = async () => 
     flash('Bewertung nicht gespeichert. Keine Verbindung zum Server.');
   }
 });
+/* Grad-Vorschläge: Wer geschafft hat, schlägt einen Grad vor. Der Grad des Erstellers zählt als dessen Vorschlag,
+   solange er keinen eigenen abgibt. Angezeigt wird der Mittelwert, gerundet auf die UIAA-Stufen (… 6-, 6, 6+ …). */
+function gradeVotes(r){
+  const v = {};
+  if (r.by && r.grade) v[r.by] = r.grade;
+  Object.entries(r.votes || {}).forEach(([p, g]) => { if (gi(g) >= 0 && (p === r.by || (r.sends || []).includes(p))) v[p] = g; });
+  return v;
+}
+function gradeOf(r){
+  const v = Object.values(gradeVotes(r)).map(gi).filter(i => i >= 0);
+  if (!v.length) return r.grade;
+  return GRADES[Math.round(v.reduce((a, b) => a + b, 0) / v.length)];
+}
+function showVote(){
+  const r = route, can = !r.draft && !r.deleted_at && !!me && (r.sends || []).includes(me);
+  $('vote-box').hidden = !can;
+  const mine = (r.votes || {})[me];
+  $('vote').innerHTML = `<option value="">–</option>` + GRADES.map(g => `<option value="${g}">${g}</option>`).join('');
+  $('vote').value = mine || '';
+  const n = Object.keys(gradeVotes(r)).length;
+  $('rb-grade').textContent = gradeOf(r);
+  $('rb-grade').title = n > 1 ? `Mittelwert aus ${n} Vorschlägen` : 'Grad vom Ersteller';
+  showSends();
+}
+$('vote').onchange = async () => {
+  const r = route; if (!r || !me) return;
+  r.votes = r.votes || {};
+  const before = r.votes[me], g = $('vote').value;
+  if (g) r.votes[me] = g; else delete r.votes[me];
+  showVote();
+  try{
+    if (!g) await api(`grade_votes?route_id=eq.${encodeURIComponent(r.id)}&person=eq.${encodeURIComponent(me)}`, {method:'DELETE'});
+    else await api('grade_votes?on_conflict=route_id,person', {method:'POST', headers:{Prefer:'resolution=merge-duplicates,return=minimal'},
+      body:JSON.stringify({route_id:r.id, person:me, grade:g, updated:new Date().toISOString()})});
+    flash(g ? `Vorschlag ${g} gespeichert. Angezeigt wird jetzt ${gradeOf(r)}.` : 'Vorschlag zurückgenommen.');
+  }catch(e){
+    if (before) r.votes[me] = before; else delete r.votes[me];
+    if (route === r) showVote();
+    flash('Vorschlag nicht gespeichert. Keine Verbindung zum Server.');
+  }
+};
 $('fav').onclick = () => {
   if (!route) return;
   if (favs.has(route.id)) favs.delete(route.id); else favs.add(route.id);
@@ -1398,8 +1463,8 @@ const isNew = r => Date.now() - new Date(r.created).getTime() < NEW_DAYS * 864e5
 /* Sortierung der Routenliste; bei Gleichstand nach Name */
 const byName = (a, b) => a.name.localeCompare(b.name, 'de');
 const SORTS = {
-  grade:(a, b) => gi(a.grade) - gi(b.grade) || byName(a, b),
-  'grade-desc':(a, b) => gi(b.grade) - gi(a.grade) || byName(a, b),
+  grade:(a, b) => gi(gradeOf(a)) - gi(gradeOf(b)) || byName(a, b),
+  'grade-desc':(a, b) => gi(gradeOf(b)) - gi(gradeOf(a)) || byName(a, b),
   new:(a, b) => (b.created || '').localeCompare(a.created || ''),
   old:(a, b) => (a.created || '').localeCompare(b.created || ''),
   name:byName,
@@ -1432,7 +1497,7 @@ function showList(){
     : drafts
     ? live.filter(r => r.draft).sort((a, b) => b.created.localeCompare(a.created))
     : live.filter(r => !r.draft)
-      .filter(r => gi(r.grade) >= lo && gi(r.grade) <= hi)
+      .filter(r => gi(gradeOf(r)) >= lo && gi(gradeOf(r)) <= hi)
       .filter(r => !filter.open || !(r.sends || []).includes(me))
       .filter(r => !filter.fav || favs.has(r.id))
       .filter(r => !filter.by || r.by === filter.by)
@@ -1444,7 +1509,7 @@ function showList(){
     const rt = r.draft || r.deleted_at ? null : ratingOf(r);
     const stars = rt ? `<span class="rating" aria-label="Bewertung ${komma(rt.avg)} von 5, ${rt.n} Stimmen"><i>★</i> ${komma(rt.avg)} (${rt.n})</span>` : '';
     return `<li class="${mine ? 'done' : ''}"><button type="button" data-id="${r.id}">
-      <span class="grade">${esc(r.grade)}</span><span>${favs.has(r.id) ? '<span class="heart" aria-label="Favorit">♥</span> ' : ''}${esc(r.name)}${(comments[r.id] || []).length ? ` <span class="who" aria-label="${comments[r.id].length} Kommentare">💬 ${comments[r.id].length}</span>` : ''}</span>${extra}
+      <span class="grade">${esc(gradeOf(r))}</span><span>${favs.has(r.id) ? '<span class="heart" aria-label="Favorit">♥</span> ' : ''}${esc(r.name)}${(comments[r.id] || []).length ? ` <span class="who" aria-label="${comments[r.id].length} Kommentare">💬 ${comments[r.id].length}</span>` : ''}</span>${extra}
       <span class="who">von ${esc(r.by || '–')}</span>${stars}
       <span class="meta sends">${mine ? '✓ geschafft' : ''}</span></button></li>`;
   }).join('');
@@ -1459,7 +1524,7 @@ function showList(){
 /* Meine Übersicht: geschaffte Routen je Grad (schwerster Grad oben). Ein Tipp auf einen Grad stellt den Filter darauf ein. */
 function showStats(){
   const live = routes.filter(r => !r.deleted_at && !r.draft), by = {};
-  live.forEach(r => { const g = by[r.grade] = by[r.grade] || {n:0, got:0}; g.n++; if ((r.sends || []).includes(me)) g.got++; });
+  live.forEach(r => { const k = gradeOf(r), g = by[k] = by[k] || {n:0, got:0}; g.n++; if ((r.sends || []).includes(me)) g.got++; });
   const grades = Object.keys(by).sort((a, b) => gi(b) - gi(a)), max = Math.max(1, ...grades.map(g => by[g].n));
   const got = grades.reduce((a, g) => a + by[g].got, 0), top = grades.find(g => by[g].got > 0);
   $('st-sum').innerHTML = live.length
@@ -1490,7 +1555,7 @@ $('st-close').onclick = () => closeStats();
 /* Zufallsroute: eine offene Route im eingestellten Grad-Bereich */
 $('random').onclick = () => {
   const lo = gi(filter.from), hi = gi(filter.to);
-  const pool = routes.filter(r => !r.deleted_at && !r.draft && gi(r.grade) >= lo && gi(r.grade) <= hi && !(r.sends || []).includes(me) && (!filter.by || r.by === filter.by));
+  const pool = routes.filter(r => !r.deleted_at && !r.draft && gi(gradeOf(r)) >= lo && gi(gradeOf(r)) <= hi && !(r.sends || []).includes(me) && (!filter.by || r.by === filter.by));
   if (!pool.length) return flash(`Keine offene Route von ${filter.from} bis ${filter.to}.`);
   openRoute(pool[Math.floor(Math.random() * pool.length)].id);
 };
@@ -1505,18 +1570,20 @@ function showSends(){
   $('sent').setAttribute('aria-pressed', String(!!me && (route.sends || []).includes(me)));
   $('sent').hidden = $('v-sends').hidden = !!route.draft || !!route.deleted_at;
   const who = [...(route.sends || [])].sort((a, b) => a.localeCompare(b, 'de'));
-  $('v-sends').textContent = who.length ? `✓ Geschafft von ${who.join(', ')}` : 'Noch von niemandem geschafft.';
+  const n = Object.keys(gradeVotes(route)).length;
+  $('v-sends').textContent = (who.length ? `✓ Geschafft von ${who.join(', ')}` : 'Noch von niemandem geschafft.')
+    + (n > 1 ? ` · Grad aus ${n} Vorschlägen` : '');
 }
 $('sent').onclick = async () => {
   const r = route, sends = r.sends, had = sends.includes(me);
   if (had) sends.splice(sends.indexOf(me), 1); else sends.push(me);
-  showSends();
+  showVote();
   try{
     if (had) await api(`sends?route_id=eq.${encodeURIComponent(r.id)}&person=eq.${encodeURIComponent(me)}`, {method:'DELETE'});
     else await api('sends', {method:'POST', headers:{Prefer:'resolution=ignore-duplicates,return=minimal'}, body:JSON.stringify({route_id:r.id, person:me})});
   }catch(e){
     if (had) sends.push(me); else sends.splice(sends.indexOf(me), 1);
-    if (route === r) showSends();
+    if (route === r) showVote();
     flash('Haken nicht gespeichert. Keine Verbindung zum Server.');
   }
 };
@@ -1524,7 +1591,6 @@ function openRoute(id){
   route = routes.find(r => r.id === id); if (!route) return showList();
   marks = route.marks.map(m => ({...m})); rebuild();
   $('rb-name').textContent = route.name;
-  $('rb-grade').textContent = route.grade;
   $('rb-by').textContent = 'von ' + (route.by || '–');
   $('v-note').textContent = route.note || ''; $('v-note').hidden = !route.note;
   $('rb-draft').hidden = !route.draft;
@@ -1543,6 +1609,7 @@ function startEdit(r){
   $('r-name').value = r ? r.name : '';
   $('r-grade').value = r ? r.grade : '5';
   $('r-note').value = r ? (r.note || '') : '';
+  fillCreator(r ? (r.by || me) : me);
   setType('start', false); $('tour-ask').hidden = true;
   rebuild(); dirty = false; armCancel(false);
   setMode('edit');
@@ -1568,7 +1635,25 @@ $('next').onclick = () => {
 $('d-back').onclick = () => {
   $('details').hidden = true; $('edit').hidden = false;
 };
-['r-name', 'r-grade', 'r-note'].forEach(id => $(id).addEventListener('input', () => { dirty = true; }));
+/* Ersteller: Standard ist, wer einträgt; Auswahl aus allen Namen der Gruppe oder ein neuer Name */
+const OTHER = '…anderer…';
+function fillCreator(who){
+  const names = knownNames(); if (me && !names.includes(me)) names.push(me); if (who && !names.includes(who)) names.push(who);
+  names.sort((a, b) => a.localeCompare(b, 'de'));
+  $('r-by').innerHTML = names.map(n => `<option value="${esc(n)}">${esc(n)}${n === me ? ' (du)' : ''}</option>`).join('')
+    + `<option value="${OTHER}">Anderer Name …</option>`;
+  $('r-by').value = who; $('r-by-new').value = ''; $('r-by-new').hidden = true;
+}
+$('r-by').addEventListener('change', () => {
+  const other = $('r-by').value === OTHER;
+  $('r-by-new').hidden = !other; if (other) $('r-by-new').focus();
+});
+function creator(){
+  if ($('r-by').value !== OTHER) return $('r-by').value || me;
+  const t = $('r-by-new').value.trim(); if (!t) return '';
+  return knownNames().find(k => k.toLowerCase() === t.toLowerCase()) || t;
+}
+['r-name', 'r-grade', 'r-note', 'r-by', 'r-by-new'].forEach(id => $(id).addEventListener('input', () => { dirty = true; }));
 $('d-cancel').onclick = () => {
   if (dirty && $('d-cancel').textContent === 'Abbrechen'){
     $('d-cancel').textContent = 'Verwerfen?';
@@ -1579,7 +1664,9 @@ $('d-cancel').onclick = () => {
 async function store(draft){
   const name = $('r-name').value.trim() || (draft ? 'Projekt vom ' + new Date().toLocaleDateString('de-DE') : '');
   if (!name){ $('r-name').focus(); return warn('Gib der Route einen Namen.'); }
-  const data = {name, grade:$('r-grade').value, note:$('r-note').value.trim(), marks:marks.map(m => ({...m})), cam:editCam || camState(), draft};
+  const by = creator();
+  if (!by){ $('r-by-new').focus(); return warn('Gib den Namen des Erstellers ein.'); }
+  const data = {name, by, grade:$('r-grade').value, note:$('r-note').value.trim(), marks:marks.map(m => ({...m})), cam:editCam || camState(), draft};
   if (route) Object.assign(route, data);
   const r = route ? {...route, ...data}
     : {id:Date.now().toString(36) + Math.random().toString(36).slice(2, 6), model:loadedModel || newestModel, created:new Date().toISOString(), by:me, sends:[], ratings:{}, ...data};
@@ -1627,7 +1714,7 @@ $('remove').onclick = async () => {
 $('restore').onclick = async () => {
   if (await setDeleted(route, false)){ listTab = route.draft ? 'drafts' : 'routes'; openRoute(route.id); }
 };
-['input', 'change'].forEach(ev => ['r-name', 'r-grade', 'r-note'].forEach(id => $(id).addEventListener(ev, () => dirty = true)));
+['input', 'change'].forEach(ev => ['r-name', 'r-grade', 'r-note', 'r-by', 'r-by-new'].forEach(id => $(id).addEventListener(ev, () => dirty = true)));
 
 /* Vollbild, wo der Browser es erlaubt */
 if (document.fullscreenEnabled){
@@ -1669,7 +1756,7 @@ $('share').onclick = () => {
   const open = $('share-row').hidden;
   $('share-row').hidden = !open; $('share').setAttribute('aria-expanded', String(open));
 };
-const shareText = r => `${r.name} (${r.grade}) im Dorfmatratzenlager`;
+const shareText = r => `${r.name} (${gradeOf(r)}) im Dorfmatratzenlager`;
 $('share-link').onclick = async () => {
   if (!route) return;
   const url = routeLink(route);
@@ -1690,9 +1777,9 @@ function routeImage(r){
   g.fillText(name, 16 * k, h + 32 * k);
   const nw = g.measureText(name).width;
   g.font = `700 ${Math.round(16 * k)}px "DM Mono", ui-monospace, monospace`;
-  const gx = 16 * k + nw + 10 * k, gw = g.measureText(r.grade).width + 14 * k;
+  const gx = 16 * k + nw + 10 * k, gw = g.measureText(gradeOf(r)).width + 14 * k;
   g.fillStyle = 'rgba(255,255,255,.22)'; g.fillRect(gx, h + 14 * k, gw, 24 * k);
-  g.fillStyle = '#ffffff'; g.fillText(r.grade, gx + 7 * k, h + 31 * k);
+  g.fillStyle = '#ffffff'; g.fillText(gradeOf(r), gx + 7 * k, h + 31 * k);
   g.font = `400 ${Math.round(14 * k)}px "DM Sans", system-ui, sans-serif`;
   g.globalAlpha = .9;
   g.fillText('von ' + (r.by || '–') + ' · Dorfmatratzenlager', 16 * k, h + 58 * k);

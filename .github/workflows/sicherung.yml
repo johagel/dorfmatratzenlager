@@ -34,10 +34,11 @@ jobs:
           routes=$(get 'routes?select=*'); sends=$(get 'sends?select=*'); models=$(get 'models?select=*')
           comments=$(get 'comments?select=*' || echo '[]')
           ratings=$(get 'ratings?select=*' || echo '[]')
+          votes=$(get 'grade_votes?select=*' || echo '[]')
           n=$(echo "$routes" | jq length)
           if [ "$n" = 0 ]; then echo "Keine Routen gelesen (Code falsch?)"; exit 1; fi
-          jq -n --argjson r "$routes" --argjson s "$sends" --argjson m "$models" --argjson c "$comments" --argjson b "$ratings" \
-            '{erstellt: (now | todate), routes: $r, sends: $s, models: $m, comments: $c, ratings: $b}' > /tmp/sicherung.json
+          jq -n --argjson r "$routes" --argjson s "$sends" --argjson m "$models" --argjson c "$comments" --argjson b "$ratings" --argjson g "$votes" \
+            '{erstellt: (now | todate), routes: $r, sends: $s, models: $m, comments: $c, ratings: $b, grade_votes: $g}' > /tmp/sicherung.json
           f="backup/sicherung-$(date -u +%F).json.enc"
           openssl enc -aes-256-cbc -pbkdf2 -salt -in /tmp/sicherung.json -out "$f" -pass env:GROUP_CODE
           echo "$n Routen gesichert in $f"
